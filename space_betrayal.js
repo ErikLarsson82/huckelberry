@@ -1,8 +1,17 @@
+//TODO
+// - Order via telecom om uppe
+// - Pilot ger orderstatus på motor och sköld
+// - Undersöka varje rum
+// - Rum-events, exempelvis motorfel
+// - Dela upp filen, requirejs
+
 var TICK_DURATION = 2000;
-var HALTED = false;
+var HALTED = true;
 
 var OPERATIONAL = "Operational";
 var BROKEN = "Broken";
+var LOCKED = "Locked";
+var UNLOCKED = "Unlocked";
 
 var BREAK_ENGINE_ON_STARTUP = true;
 
@@ -15,10 +24,26 @@ document.addEventListener("keydown", function(e) {
             HALTED = true;
             console.log("Simulation paused!");
         }   
+    } else if (e.keyCode === 83) {
+        if (!HALTED) {
+            console.log("Simulation paused!");
+        }
+        HALTED = true;
+        console.log("");
+        console.log("");
+        console.log("");
+        printShipStatus();
+    } else if (e.keyCode === 84) {
+        if (!HALTED) {
+            console.log("Simulation paused!");
+        }
+        HALTED = true;
+        console.log("Manual tick");
+        gameTick();
     }
 });
 
-//---- People 
+// People 
 var Person = function(name) {
     this.name = name;
     this.queue = [];
@@ -42,7 +67,9 @@ var mechanic = new Person("Mechanic");
 
 var mercenary = new Person("Mercenary");
 
-// ------ Ship
+var pilot = new Person("Pilot");
+
+// Ship
 var Room = function(name) {
     this.name = name;
     this.connections = [];
@@ -52,7 +79,16 @@ var Room = function(name) {
 
 var Engine = function() {
     this.status = OPERATIONAL;
-}
+};
+
+var ControlPanel = function() {
+    this.actions = [modifyAllDoorsStatus];
+};
+
+var Door = function(from, to) {
+    this.status = LOCKED;
+    this.connections = [from, to];
+};
 
 var bridge = new Room("Bridge      ");
 var medbay = new Room("Medbay      ");
@@ -64,14 +100,25 @@ var shieldroom = new Room("Shieldroom  ");
 var escapePod1 = new Room("Escape pod 1");
 var escapePod2 = new Room("Escape pod 2");
 
-var crew = [player, medic, mechanic, mercenary];
+var crew = [player, medic, mechanic, mercenary, pilot];
 
 var engine = new Engine();
 
-bridge.crew = [player, medic, mercenary];
+var controlPanel = new ControlPanel();
 
+var door1 = new Door(bedroom, kitchen);
+var door2 = new Door(kitchen, bridge);
+var door3 = new Door(engineroom, bridge);
+var door4 = new Door(engineroom, shieldroom);
+var door5 = new Door(bridge, medbay);
+var door6 = new Door(medbay, storageroom);
+var door7 = new Door(kitchen, escapePod1);
+var door8 = new Door(medbay, escapePod2);
+
+bridge.crew = [player, medic, mercenary, pilot];
 engineroom.crew = [mechanic];
 
+bridge.items.push(controlPanel);
 engineroom.items.push(engine);
 
 bridge.connections = [engineroom, kitchen, medbay];
@@ -86,12 +133,76 @@ escapePod2.connections = [medbay];
 
 var ship = {
     rooms: [bridge, medbay, storageroom, kitchen, engineroom, bedroom, escapePod1, escapePod2],
+    doors: [door1, door2, door3, door4, door5, door6, door7, door8],
     crew: crew
+}
+
+// Item functions
+var lockAllDoors = function(who) {
+    var action = {
+        name: "Lock all doors",
+        shortName: "LA",
+        duration: 1,
+        event: function(duration) {
+            var eligablePerson = _.filter(bridge.crew, function(person) {
+                return (person === who);
+            });
+            if (eligablePerson.length === 0) {
+                console.log('[[[ ' + who.name + ' not eligable for door lock ]]]');
+            } else if (duration === 0) {
+                console.log('*** Doors locked ***');
+                modifyAllDoorsStatus(LOCKED);
+            }
+        }.bind(who)
+    }
+    who.queue.push(action);
+    return "Lock all doors scheduled";
+}
+
+var unlockAllDoors = function(who) {
+    var action = {
+        name: "Unlock all doors",
+        shortName: "UA",
+        duration: 1,
+        event: function(duration) {
+            var eligablePerson = _.filter(bridge.crew, function(person) {
+                return (person === who);
+            });
+            if (eligablePerson.length === 0) {
+                console.log('[[[ ' + who.name + ' not eligable for door unlock ]]]');
+            } else if (duration === 0) {
+                console.log('*** Doors unlocked ***');
+                modifyAllDoorsStatus(UNLOCKED);
+            }
+        }.bind(who)
+    }
+    who.queue.push(action);
+    return "Unlock all doors scheduled";
+}
+
+var fixEngine = function(who) {
+    var action = {
+        name: "Repair",
+        shortName: "R",
+        duration: 2,
+        event: function(duration) {
+            var eligablePerson = _.filter(engineroom.crew, function(person) {
+                return (person === who);
+            });
+            if (eligablePerson.length === 0) {
+                console.log('[[[ ' + who.name + ' not eligable for engine repair ]]]');
+            } else if (duration === 0) {
+                console.log("*** Engine repaired ***");
+                engine.status = OPERATIONAL;
+            }
+        }.bind(who)
+    }
+    who.queue.push(action);
+    return "Repair added to queue";
 }
 
 // People functions
 var move = function(who, where) {
-    isLegalMove(who, where);
     var action = {
         name: "Move",
         shortName: "M",
@@ -106,13 +217,36 @@ var move = function(who, where) {
     return "Move scheduled";
 }
 
+// Ship help functions
+var findDoor = function(from, to) {
+    var door = _.filter(ship.doors, function(door) {
+        return _.contains(door.connections, from) && _.contains(door.connections, to);
+    })
+    return (door.length === 1) ? door[0] : alert("Door broken");
+}
+
+var modifyAllDoorsStatus = function(status) {
+    _.each(ship.doors, function(door) {
+        door.status = status;
+    })
+}
+
+// Help functions
 var isLegalMove = function(who, where) {
     var legal = true;
     _.each(ship.rooms, function(room) {
         _.each(room.crew, function(person) {
-            if (who === person && !_.contains(room.connections, where)) {
-                console.log('[[[ Illegal move ]]]');
-                legal = false;
+            if (who === person) {
+                if (!_.contains(room.connections, where)) {
+                    console.log('[[[ ' + who.name + ' tried illegal move ]]]');
+                    legal = false;
+                } else {
+                    var relevantDoor = findDoor(room, where);
+                    if (relevantDoor.status === LOCKED) {
+                        console.log('[[[ ' + who.name + ' finds door locked ]]]');
+                        legal = false;
+                    }
+                }
             }
         })
     });
@@ -142,30 +276,6 @@ var executeMove = function(who, where) {
     return who.name + " moved to " + where.name;
 }
 
-var fixEngine = function(who) {
-    var action = {
-        name: "Repair",
-        shortName: "R",
-        duration: 2,
-        event: function(duration) {
-            var eligablePerson = _.filter(engineroom.crew, function(person) {
-                return (person === who);
-            });
-            if (eligablePerson.length === 0) {
-                console.log('[[[ Not eligable ]]]');
-            } else {
-                if (duration === 0) {
-                    console.log("*** Engine repaired ***");
-                    engine.status = OPERATIONAL;
-                }
-            }
-        }.bind(who)
-    }
-    who.queue.push(action);
-    return "Repair added to queue";
-}
-
-// ---- Help functions
 var printShipStatus = function() {
     console.log("   Room status:");
     _.each(ship.rooms, function(room) {
@@ -186,6 +296,23 @@ var printShipStatus = function() {
     });
     console.log("   Ship status:");
     console.log("          Engine      : " + engine.status);
+    var doorStatus = "          Doors       : ";
+    _.each(ship.doors, function(door) {
+        doorStatus += (door.status === LOCKED) ? "L, " : "U, ";
+    })
+    console.log(doorStatus);
+
+}
+
+var gameTick = function() {
+    console.log("");
+    console.log("");
+    console.log("New turn:");
+
+    _.each(ship.crew, function(person) {
+        person.tick();
+    })
+    printShipStatus();
 }
 
 
@@ -198,13 +325,5 @@ printShipStatus();
 
 setInterval(function() {
     if (HALTED) return;
-
-    console.log("");
-    console.log("");
-    console.log("New turn:");
-
-    _.each(ship.crew, function(person) {
-        person.tick();
-    })
-    printShipStatus();
+    gameTick();
 }, TICK_DURATION);
