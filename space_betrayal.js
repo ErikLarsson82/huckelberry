@@ -14,6 +14,7 @@ var LOCKED = "Locked";
 var UNLOCKED = "Unlocked";
 
 var BREAK_ENGINE_ON_STARTUP = true;
+var GOO_IN_STORAGEROOM = true;
 
 document.addEventListener("keydown", function(e) {
     if (e.code === "Space") {
@@ -51,10 +52,14 @@ var Person = function(name) {
     this.tick = function() {
         if (this.queue.length > 0) {
             var currentQueue = this.queue[0];
-            currentQueue.event(currentQueue.duration);
-            currentQueue.duration = currentQueue.duration - 1;
-            if (currentQueue.duration < 0) {
+            var result = currentQueue.event(currentQueue.duration);
+            if (result !== true) {
                 this.queue.shift();
+            } else {
+                currentQueue.duration = currentQueue.duration - 1;
+                if (currentQueue.duration < 0) {
+                    this.queue.shift();
+                }
             }
         }
     }
@@ -90,6 +95,12 @@ var Door = function(from, to) {
     this.connections = [from, to];
 };
 
+var Goo = function() {
+    this.name = "Goo";
+    this.hp = 20;
+    this.hidden = true;
+}
+
 var bridge = new Room("Bridge      ");
 var medbay = new Room("Medbay      ");
 var storageroom = new Room("Storageroom ");
@@ -115,7 +126,8 @@ var door6 = new Door(medbay, storageroom);
 var door7 = new Door(kitchen, escapePod1);
 var door8 = new Door(medbay, escapePod2);
 
-bridge.crew = [player, medic, mercenary, pilot];
+bridge.crew = [player, medic, pilot];
+storageroom.crew = [mercenary];
 engineroom.crew = [mechanic];
 
 bridge.items.push(controlPanel);
@@ -149,10 +161,12 @@ var lockAllDoors = function(who) {
             });
             if (eligablePerson.length === 0) {
                 console.log('[[[ ' + who.name + ' not eligable for door lock ]]]');
+                return false;
             } else if (duration === 0) {
                 console.log('*** Doors locked ***');
                 modifyAllDoorsStatus(LOCKED);
             }
+            return true;
         }.bind(who)
     }
     who.queue.push(action);
@@ -170,10 +184,12 @@ var unlockAllDoors = function(who) {
             });
             if (eligablePerson.length === 0) {
                 console.log('[[[ ' + who.name + ' not eligable for door unlock ]]]');
+                return false;
             } else if (duration === 0) {
                 console.log('*** Doors unlocked ***');
                 modifyAllDoorsStatus(UNLOCKED);
             }
+            return true;
         }.bind(who)
     }
     who.queue.push(action);
@@ -191,14 +207,50 @@ var fixEngine = function(who) {
             });
             if (eligablePerson.length === 0) {
                 console.log('[[[ ' + who.name + ' not eligable for engine repair ]]]');
+                return false;
             } else if (duration === 0) {
                 console.log("*** Engine repaired ***");
                 engine.status = OPERATIONAL;
             }
+            return true;
         }.bind(who)
     }
     who.queue.push(action);
     return "Repair added to queue";
+}
+
+var investigate = function(who) {
+    if (!who) {
+        console.log('Who?');
+        return false;
+    }
+    var action = {
+        name: "Investigate",
+        shortName: "I",
+        duration: 4,
+        event: function(duration) {
+            var room = findPerson(who);
+            if (!room) {
+                console.log('[[[ Cannot find ' + who.name + ' in any room ]]]');
+                return false;
+            } else if (duration === 0) {
+                var foundItems = markHiddenItemsInRoom(room);
+                if (foundItems === 0) {
+                    console.log('*** Investigation complete, no items found ***');
+                } else {
+                    var items = '';
+                    _.each(foundItems, function(item) {
+                        items += item.name + ', ';
+                    });
+                    console.log('*** Investigation complete, found ' + items + ' ***');
+                }
+                engine.status = OPERATIONAL;
+            }
+            return true;
+        }.bind(who)
+    }
+    who.queue.push(action);
+    return "Investigation added to queue";
 }
 
 // People functions
@@ -209,8 +261,11 @@ var move = function(who, where) {
         duration: 4,
         event: function(duration) {
             if (duration === 2) {
-                executeMove(who, where);
+                var result = executeMove(who, where);
+                if (result) who.name + " moved to " + where.name;
+                return result;
             }
+            return true;
         }.bind(who)
     }
     who.queue.push(action);
@@ -225,6 +280,16 @@ var findDoor = function(from, to) {
     return (door.length === 1) ? door[0] : alert("Door broken");
 }
 
+var findPerson = function(who) {
+    var room = _.filter(ship.rooms, function(room) {
+        var list = _.filter(room.crew, function(person) {
+            return (person === who);
+        });
+        return list.length > 0;
+    });
+    return (room.length > 0) ? room[0] : false;
+}
+
 var modifyAllDoorsStatus = function(status) {
     _.each(ship.doors, function(door) {
         door.status = status;
@@ -232,6 +297,16 @@ var modifyAllDoorsStatus = function(status) {
 }
 
 // Help functions
+var markHiddenItemsInRoom = function(room) {
+    var items = _.filter(room.items, function(item) {
+        return (item.hidden === true);
+    });
+    _.each(room.items, function(item) {
+        item.hidden === false;
+    });
+    return items;
+}
+
 var isLegalMove = function(who, where) {
     var legal = true;
     _.each(ship.rooms, function(room) {
@@ -256,14 +331,14 @@ var isLegalMove = function(who, where) {
 var executeMove = function(who, where) {
     if (!who) {
         console.log('Who?');
-        return;
+        return false;
     }
     if (!where) {
         console.log('Where?');
-        return;
+        return false;
     }
     var islegal = isLegalMove(who, where)
-    if (!islegal) return;
+    if (!islegal) return false;
 
     ship.rooms =_.each(ship.rooms, function(room) {
         room.crew = _.filter(room.crew, function(person) {
@@ -273,7 +348,7 @@ var executeMove = function(who, where) {
 
     where.crew.push(who);
 
-    return who.name + " moved to " + where.name;
+    return true;
 }
 
 var printShipStatus = function() {
@@ -315,12 +390,15 @@ var gameTick = function() {
     printShipStatus();
 }
 
-
-// Start game
+// Temp start conditions
 if (BREAK_ENGINE_ON_STARTUP) {
     engine.status = BROKEN;
 }
+if (GOO_IN_STORAGEROOM) {
+    storageroom.items.push(new Goo());
+}
 
+// Start game
 printShipStatus();
 
 setInterval(function() {
