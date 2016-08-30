@@ -1,9 +1,7 @@
 //TODO
 // - Order via telecom om uppe
-// - Pilot ger orderstatus på motor och sköld
-// - Undersöka varje rum
-// - Rum-events, exempelvis motorfel
-// - Dela upp filen, requirejs
+// - Pilot ger orderstatus på motor och hull breach
+// - Dela upp filen, requireJS
 
 var TICK_DURATION = 2000;
 var HALTED = true;
@@ -13,8 +11,13 @@ var BROKEN = "Broken";
 var LOCKED = "Locked";
 var UNLOCKED = "Unlocked";
 
-var BREAK_ENGINE_ON_STARTUP = true;
-var GOO_IN_STORAGEROOM = true;
+var DEBUG_SHOW_HIDDEN_ITEMS = false;
+var DEBUG_SEED = false;
+
+var BREAK_ENGINE_ON_STARTUP = false;
+var GOO_IN_STORAGEROOM = false;
+var GOO_IN_RANDOM_ROOM = true;
+var LOCK_ALL_DOORS = false;
 
 document.addEventListener("keydown", function(e) {
     if (e.code === "Space") {
@@ -64,6 +67,7 @@ var Person = function(name) {
         }
     }
 }
+
 var player = new Person("You");
 
 var medic = new Person("Medic");
@@ -88,16 +92,41 @@ var Engine = function() {
 
 var ControlPanel = function() {
     this.actions = [modifyAllDoorsStatus];
+    this.breachDetected = false;
 };
 
 var Door = function(from, to) {
-    this.status = LOCKED;
+    this.status = UNLOCKED;
     this.connections = [from, to];
 };
 
 var Goo = function() {
-    this.name = "Goo";
-    this.hp = 20;
+    this.name = 'Goo';
+    this.hp = 4;
+    this.hidden = true;
+    this.activationTime = 5;
+    this.tick = function() {
+        var room = findRoomByItemInstance(this);
+        if (countAliensInRoom(room).length < 3) {
+            this.activationTime = this.activationTime - 1;
+            if (this.activationTime <= 0) {
+                var currentRoom = room;
+                var spawningAlien = new Alien();
+                currentRoom.items.push(spawningAlien);
+                this.activationTime = 5;
+
+                if (DEBUG_SHOW_HIDDEN_ITEMS || room.crew.length > 0) {
+                    spawningAlien.hidden = false;
+                    console.log('*** Alien lifeform spawned ***');
+                }
+            }
+        }
+    }
+}
+
+var Alien = function() {
+    this.name = "Alien";
+    this.hp = 2;
     this.hidden = true;
 }
 
@@ -143,9 +172,12 @@ shieldroom.connections = [engineroom];
 escapePod1.connections = [kitchen];
 escapePod2.connections = [medbay];
 
+var rooms = [bridge, medbay, storageroom, kitchen, engineroom, bedroom, escapePod1, escapePod2];
+
+var doors = [door1, door2, door3, door4, door5, door6, door7, door8];
 var ship = {
-    rooms: [bridge, medbay, storageroom, kitchen, engineroom, bedroom, escapePod1, escapePod2],
-    doors: [door1, door2, door3, door4, door5, door6, door7, door8],
+    rooms: rooms,
+    doors: doors,
     crew: crew
 }
 
@@ -219,6 +251,12 @@ var fixEngine = function(who) {
     return "Repair added to queue";
 }
 
+var searchTheShip = function() {
+    _.each(crew, function(person) {
+        investigate(person);
+    })
+}
+
 var investigate = function(who) {
     if (!who) {
         console.log('Who?');
@@ -234,17 +272,16 @@ var investigate = function(who) {
                 console.log('[[[ Cannot find ' + who.name + ' in any room ]]]');
                 return false;
             } else if (duration === 0) {
-                var foundItems = markHiddenItemsInRoom(room);
-                if (foundItems === 0) {
-                    console.log('*** Investigation complete, no items found ***');
+                var foundItems = revealHiddenItemsInRoom(room);
+                if (foundItems.length === 0) {
+                    console.log('*** ' + who.name + ': Investigation complete, no items found ***');
                 } else {
                     var items = '';
                     _.each(foundItems, function(item) {
                         items += item.name + ', ';
                     });
-                    console.log('*** Investigation complete, found ' + items + ' ***');
+                    console.log('*** ' + who.name + ': Investigation complete, found ' + items + ' ***');
                 }
-                engine.status = OPERATIONAL;
             }
             return true;
         }.bind(who)
@@ -272,16 +309,26 @@ var move = function(who, where) {
     return "Move scheduled";
 }
 
+var removeQueuedAction = function(who) {
+    who.queue.shift();
+}
+
+var clearAllQueuedActions = function() {
+    _.each(crew, function(person) {
+        person.queue.length = 0;
+    });
+}
+
 // Ship help functions
 var findDoor = function(from, to) {
-    var door = _.filter(ship.doors, function(door) {
+    var door = _.filter(doors, function(door) {
         return _.contains(door.connections, from) && _.contains(door.connections, to);
     })
     return (door.length === 1) ? door[0] : alert("Door broken");
 }
 
 var findPerson = function(who) {
-    var room = _.filter(ship.rooms, function(room) {
+    var room = _.filter(rooms, function(room) {
         var list = _.filter(room.crew, function(person) {
             return (person === who);
         });
@@ -290,26 +337,54 @@ var findPerson = function(who) {
     return (room.length > 0) ? room[0] : false;
 }
 
+var findItemByInstanceOf = function(what) {
+    var items = [];
+    _.each(rooms, function(room) {
+        var list = _.filter(room.items, function(item) {
+            return (item instanceof what);
+        });
+        items = items.concat(list);
+    });
+    return (items.length > 0) ? items : false;
+}
+
+var findRoomByItemInstance = function(what) {
+    var room = _.filter(rooms, function(room) {
+        var list = _.filter(room.items, function(item) {
+            return (item === what);
+        });
+        return list.length > 0;
+    });
+    return (room.length > 0) ? room[0] : false;
+}
+
+
 var modifyAllDoorsStatus = function(status) {
-    _.each(ship.doors, function(door) {
+    _.each(doors, function(door) {
         door.status = status;
     })
 }
 
 // Help functions
-var markHiddenItemsInRoom = function(room) {
+var revealHiddenItemsInRoom = function(room) {
     var items = _.filter(room.items, function(item) {
         return (item.hidden === true);
     });
-    _.each(room.items, function(item) {
-        item.hidden === false;
+    _.each(items, function(item) {
+        item.hidden = false;
     });
     return items;
 }
 
+var countAliensInRoom = function(room) {
+    return _.filter(room.items, function(item) {
+        return (item instanceof Alien);
+    });
+}
+
 var isLegalMove = function(who, where) {
     var legal = true;
-    _.each(ship.rooms, function(room) {
+    _.each(rooms, function(room) {
         _.each(room.crew, function(person) {
             if (who === person) {
                 if (!_.contains(room.connections, where)) {
@@ -340,7 +415,7 @@ var executeMove = function(who, where) {
     var islegal = isLegalMove(who, where)
     if (!islegal) return false;
 
-    ship.rooms =_.each(ship.rooms, function(room) {
+    rooms =_.each(rooms, function(room) {
         room.crew = _.filter(room.crew, function(person) {
             return !(who === person);
         })
@@ -353,30 +428,43 @@ var executeMove = function(who, where) {
 
 var printShipStatus = function() {
     console.log("   Room status:");
-    _.each(ship.rooms, function(room) {
+    _.each(rooms, function(room) {
         var prettyPeople = "";
         if (room.crew) {
-            for (var j = 0; j < room.crew.length; j++) {
-                var person = room.crew[j];
+            _.each(room.crew, function(person) {
                 var prettyPerson = person.name;
                 if (person.queue.length > 0) {
                     prettyPerson += "[" + person.queue[0].shortName + "-" + person.queue[0].duration + "]";
                 }
                 prettyPeople += prettyPerson + ", ";
-            }
+            });
         } else {
             prettyPeople = "-";
         }
         console.log("          " + room.name + ": " + prettyPeople);
+        var items = _.filter(room.items, function(item) {
+            if (DEBUG_SHOW_HIDDEN_ITEMS && item.hidden === true) {
+                return true;
+            } else {
+                return (item.hidden === false);
+            }
+        });
+        if (items.length > 0) {
+            var prettyItems = '';
+            _.each(items, function(item) {
+                prettyItems += item.name + ', '
+            });
+            console.log('                      : { ' + prettyItems + ' }');
+        }
     });
     console.log("   Ship status:");
     console.log("          Engine      : " + engine.status);
     var doorStatus = "          Doors       : ";
-    _.each(ship.doors, function(door) {
+    _.each(doors, function(door) {
         doorStatus += (door.status === LOCKED) ? "L, " : "U, ";
     })
     console.log(doorStatus);
-
+    console.log("          Hull breach : " + controlPanel.breachDetected);
 }
 
 var gameTick = function() {
@@ -386,16 +474,39 @@ var gameTick = function() {
 
     _.each(ship.crew, function(person) {
         person.tick();
-    })
+    });
+
+    _.each(rooms, function(room) {
+        _.each(room.items, function(item) {
+            item.tick && item.tick();
+        });
+    });
     printShipStatus();
 }
+
+// Setup seed
+
+var randomSeed = Math.round(Math.random() * 10000);
+var seed = (DEBUG_SEED) ? DEBUG_SEED : randomSeed;
+console.log("Using seed " + seed);
+Math.seedrandom(seed);
 
 // Temp start conditions
 if (BREAK_ENGINE_ON_STARTUP) {
     engine.status = BROKEN;
 }
 if (GOO_IN_STORAGEROOM) {
+    controlPanel.breachDetected = true;
     storageroom.items.push(new Goo());
+}
+if (GOO_IN_RANDOM_ROOM) {
+    var countRooms = rooms.length;
+    var randomIndex = Math.floor(Math.random() * countRooms);
+    controlPanel.breachDetected = true;
+    rooms[randomIndex].items.push(new Goo());
+}
+if (LOCK_ALL_DOORS) {
+    modifyAllDoorsStatus(LOCKED);
 }
 
 // Start game
