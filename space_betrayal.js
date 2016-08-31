@@ -4,8 +4,11 @@
 // - Dela upp filen, requireJS
 
 // Sub tasks information
+// - Hantera conflicting info
 // - Brawl
-// - Report återger data om goo och aliens
+// - Report återger data om goo och aliens, men han brawlar så borde inte?
+// - Refaktorera informationssystemet
+// - Investigation ska rapportera aliens också, men inte om hen brawlar
 
 var TICK_DURATION = 2000;
 var HALTED = true;
@@ -31,7 +34,8 @@ var DEBUG_SEED = 3375;
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
 var GOO_IN_RANDOM_ROOM = true;
-var ALIEN_IN_BEDROOM = true;
+var ALIEN_IN_BEDROOM = false;
+var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
 
 document.addEventListener("keydown", function(e) {
@@ -69,6 +73,15 @@ var Information = function(type, who, where, value) {
     this.room = where;
     this.value = value;
     this.decay = 0;
+}
+
+var addInformation = function(inputInfo) {
+    information = _.filter(information, function(info) {
+        var allSimilar = (inputInfo.type === info.type && inputInfo.person === info.person && inputInfo.room === info.room);
+        if (allSimilar) console.log('All is similar, not allowing in filter');
+        return !allSimilar;
+    });
+    information.push(inputInfo);
 }
 
 // People 
@@ -141,7 +154,7 @@ var Goo = function() {
                 currentRoom.items.push(spawningAlien);
                 this.activationTime = 5;
 
-                if (DEBUG_SHOW_HIDDEN_ITEMS || room.crew.length > 0) {
+                if (room.crew.length > 0) {
                     var you = _.filter(room.crew, function(person) {
                         return person.name === "You";
                     });
@@ -152,7 +165,7 @@ var Goo = function() {
                             return person.name !== "You";
                         });
                         if (others.length > 0 && this.hidden === false) {
-                            information.push(new Information(ALIEN_STATUS, others[0], findPerson(others[0]), spawningAlien.name));
+                            addInformation(new Information(ALIEN_STATUS, others[0], findPerson(others[0]), spawningAlien.name));
                             console.log('*** ' + others[0].name + ' ive found an Alien ***');
                             // Start brawl!?
                         }
@@ -199,9 +212,9 @@ var door6 = new Door(medbay, storageroom);
 var door7 = new Door(kitchen, escapePod1);
 var door8 = new Door(medbay, escapePod2);
 
-medbay.crew = [];
-bridge.crew = [pilot, player];
-kitchen.crew = [medic];
+medbay.crew = [pilot];
+bridge.crew = [medic];
+kitchen.crew = [player];
 bedroom.crew = [];
 storageroom.crew = [];
 engineroom.crew = [];
@@ -317,11 +330,11 @@ var report = function(who) {
         duration: 1,
         event: function(duration) {
             if (duration === 0) {
-                information.push(new Information(LOCATION_STATUS, who, findPerson(who)));
+                addInformation(new Information(LOCATION_STATUS, who, findPerson(who)));
                 var log = '*** ' + who.name + ': Im at ' + findPerson(who).name;
                 if (findPerson(who) === bridge && who.name === "Pilot") {
-                    information.push(new Information(ENGINE_STATUS, who, findPerson(who), engine.status));
-                    information.push(new Information(HULL_STATUS, who, findPerson(who), controlPanel.breachDetected));
+                    addInformation(new Information(ENGINE_STATUS, who, findPerson(who), engine.status));
+                    addInformation(new Information(HULL_STATUS, who, findPerson(who), controlPanel.breachDetected));
                     log += ', also reporting ship data';
                 }
                 log += ' ***';
@@ -343,18 +356,21 @@ var move = function(who, where) {
             if (duration === 2) {
                 var result = executeMove(who, where);
 
-                var others = _.filter(where.crew, function(person) {
-                    return person.name !== "You" && _.filter(where.items, function(item) {
-                        return item instanceof Alien;
-                    })[0];
-                });
-                if (others.length > 0) {
-                    _.each(where.items, function(item) {
-                        if (item.hidden === true) return;
-                        information.push(new Information(ALIEN_STATUS, others[0], findPerson(others[0]), item.name));
-                        information.push(new Information(LOCATION_STATUS, others[0], findPerson(others[0])));
-                        console.log('*** ' + others[0].name + ' ive found an ' + item.name + ' ***');
+                if (who !== player) {
+                    
+                    var items = _.filter(where.items, function(item) {
+                        return (item instanceof Alien || item instanceof Goo) && (item.hidden === false);
                     });
+                    if (items.length > 0) {
+                        addInformation(new Information(LOCATION_STATUS, who, findPerson(who)));
+                    }
+                    _.each(items, function(item) {
+                        
+                        addInformation(new Information(item.type, who, findPerson(who), item.name));
+                        console.log('*** ' + who.name + ' ive found an ' + item.name + ' ***');
+                    });
+                } else {
+                    console.log('notify?');
                 }
 
                 return result;
@@ -386,10 +402,10 @@ var investigate = function(who) {
                     if (findPerson(player) === room) {
                         console.log('*** ' + who.name + ': Investigation complete, nothing new found ***');
                     } else {
-                        information.push(new Information(LOCATION_STATUS, who, findPerson(who)));
+                        addInformation(new Information(LOCATION_STATUS, who, findPerson(who)));
                         console.log('*** ' + who.name + ': Investigation complete at ' + findPerson(who).name + ', nothing new ***');
                         if (room.items.length === 0) {
-                            information.push(new Information(ROOM_CLEAR_STATUS, who, findPerson(who)));
+                            addInformation(new Information(ROOM_CLEAR_STATUS, who, findPerson(who)));
                         }
                     }
                 } else {
@@ -400,10 +416,10 @@ var investigate = function(who) {
                         });
                         console.log('*** ' + who.name + ' are done with investigation, found ' + items + ' ***');
                     } else {
-                        information.push(new Information(LOCATION_STATUS, who, findPerson(who)));
+                        addInformation(new Information(LOCATION_STATUS, who, findPerson(who)));
                         _.each(foundItems, function(item) {
                             console.log('*** ' + who.name + ': Investigation complete, found ' + item.name + ' ***');
-                            information.push(new Information(item.type, who, findPerson(who)));
+                            addInformation(new Information(item.type, who, findPerson(who)));
                         });
                     }
                 }
@@ -551,7 +567,7 @@ var printShipStatus = function() {
             });
             if (applicableInfo.length > 0) {
                 _.each(applicableInfo, function(info) {
-                    prettyPeople += '(' + info.person.name + '), ';
+                    prettyPeople += '(' + info.person.name + ')' + info.decay + ', ';
                 });
             } else {
                 prettyPeople = "-";
@@ -619,6 +635,24 @@ var printShipStatus = function() {
     if (DEBUG_SHOW_TRUE_VALUES) console.log("          Hull breach : " + controlPanel.breachDetected);
 }
 
+var revealAll = function() {
+    DEBUG_SHOW_TRUE_VALUES = true;
+    DEBUG_SHOW_HIDDEN_ITEMS = true;
+    DEBUG_SHOW_ALL_ITEMS = true;
+    DEBUG_SHOW_ALL_CREW = true;
+    printShipStatus();
+    return "Revealed all DEBUG data";
+}
+
+var hideAll = function() {
+    DEBUG_SHOW_TRUE_VALUES = false;
+    DEBUG_SHOW_HIDDEN_ITEMS = false;
+    DEBUG_SHOW_ALL_ITEMS = false;
+    DEBUG_SHOW_ALL_CREW = false;
+    printShipStatus();
+    return "Resetting DEBUG to all false"
+}
+
 var gameTick = function() {
     console.log("");
     console.log("");
@@ -668,11 +702,13 @@ if (ALIEN_IN_BEDROOM) {
     var spawningAlien = new Alien();
     bedroom.items.push(spawningAlien);
 }
+if (TWO_ALIENS_IN_KITCHEN) {
+    var spawningAlien = new Alien();
+    kitchen.items.push(spawningAlien);
+    var spawningAlien = new Alien();
+    kitchen.items.push(spawningAlien);
+}
 
-var spawningAlien = new Alien();
-kitchen.items.push(spawningAlien);
-var spawningAlien = new Alien();
-kitchen.items.push(spawningAlien);
 
 // Start game
 printShipStatus();
