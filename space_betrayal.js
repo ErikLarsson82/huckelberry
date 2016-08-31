@@ -5,7 +5,7 @@
 // Sub tasks information
 // - Hantera conflicting info
 // - Report återger data om goo och aliens, men han brawlar så borde inte?
-// - Refaktorera informationssystemet
+// - Refaktorera informationssystemet med lokal information per person som rapporteras i klump
 // - Investigation ska rapportera aliens också, men inte om hen brawlar
 
 var TICK_DURATION = 2000;
@@ -32,9 +32,11 @@ var DEBUG_SEED = 3375;
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
 var GOO_IN_RANDOM_ROOM = false;
-var ALIEN_IN_BEDROOM = true;
+var ALIEN_IN_BEDROOM = false;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
+
+var SCENARIO = 2;
 
 document.addEventListener("keydown", function(e) {
     if (e.code === "Space") {
@@ -761,14 +763,48 @@ if (TWO_ALIENS_IN_KITCHEN) {
 }
 
 
-// Start game
-printShipStatus();
-
 setInterval(function() {
     if (HALTED) return;
     gameTick();
 }, TICK_DURATION);
 
-//brawl(player, bedroom.items[0]);
-brawl(medic, bedroom.items[0]);
-//move(player, kitchen);
+
+if (SCENARIO !== false) {
+    console.log('Using Custom Scenario ' + SCENARIO + ':');
+    switch(SCENARIO) {
+        case 1:
+            console.log('Medic and alien in same room, he should brawl and report without being asked');
+            bridge.crew = [player];
+            medbay.crew = [];
+            storageroom.crew = [];
+            kitchen.crew = [];
+            engineroom.crew = [];
+            bedroom.crew = [medic];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+            var spawningAlien = new Alien();
+            bedroom.items.push(spawningAlien);
+            brawl(medic, spawningAlien);
+        break;
+        case 2:
+            console.log('Asking for medic report, Medic and alien in same room, he should brawl and report');
+            bridge.crew = [player];
+            medbay.crew = [];
+            storageroom.crew = [];
+            kitchen.crew = [];
+            engineroom.crew = [];
+            bedroom.crew = [medic];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+            var spawningAlien = new Alien();
+            bedroom.items.push(spawningAlien);
+            brawl(medic, spawningAlien);
+            report(medic);
+        break;
+    }
+}
+
+// Start game
+printShipStatus();
