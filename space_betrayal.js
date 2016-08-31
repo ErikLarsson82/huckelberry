@@ -1,11 +1,9 @@
 //TODO
 // - Order via telecom om uppe
-// - Pilot ger orderstatus på motor och hull breach
 // - Dela upp filen, requireJS
 
 // Sub tasks information
 // - Hantera conflicting info
-// - Brawl
 // - Report återger data om goo och aliens, men han brawlar så borde inte?
 // - Refaktorera informationssystemet
 // - Investigation ska rapportera aliens också, men inte om hen brawlar
@@ -34,7 +32,7 @@ var DEBUG_SEED = 3375;
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
 var GOO_IN_RANDOM_ROOM = false;
-var ALIEN_IN_BEDROOM = false;
+var ALIEN_IN_BEDROOM = true;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
 
@@ -184,12 +182,13 @@ var alienCounter = 0;
 var Alien = function() {
     this.name = "Alien" + alienCounter;
     alienCounter++;
-    this.hp = 2;
+    this.hp = 6;
     this.hidden = false;
     this.type = ALIEN_STATUS;
     this.markedForRemoval = false;
     this.tick = function() {
         if (this.hp <= 0) {
+            console.log('Killed ' + this.name);
             this.markedForRemoval = true;
         }
     }
@@ -205,7 +204,7 @@ var shieldroom = new Room("Shieldroom  ");
 var escapePod1 = new Room("Escape pod 1");
 var escapePod2 = new Room("Escape pod 2");
 
-var crew = [player, medic, pilot]; //, mechanic, mercenary, ];
+var crew = [player, medic]; //, mechanic, mercenary, ];
 
 var information = [];
 
@@ -223,9 +222,9 @@ var door7 = new Door(kitchen, escapePod1);
 var door8 = new Door(medbay, escapePod2);
 
 medbay.crew = [];
-bridge.crew = [medic];
+bridge.crew = [];
 kitchen.crew = [player];
-bedroom.crew = [];
+bedroom.crew = [medic];
 storageroom.crew = [];
 engineroom.crew = [];
 
@@ -326,12 +325,10 @@ var brawl = function(who, what) {
     var action = {
         name: "Brawl",
         shortName: "B",
-        duration: 4,
+        duration: 999,
+        what: what,
         event: function(duration) {
-            if (duration === 0) {
-                console.log('Killed ' + what.name);
-                what.hp = 0;
-            }
+            what.hp = what.hp - 1;
             return true;
         }.bind(who)
     }
@@ -689,26 +686,39 @@ var gameTick = function() {
     console.log("");
     console.log("New turn:");
 
+    //Tick all crew
     _.each(ship.crew, function(person) {
         person.tick();
     });
 
+    //Tick all items in rooms
     _.each(rooms, function(room) {
         _.each(room.items, function(item) {
             item.tick && item.tick();
         });
     });
 
+    //Remove dead members
     ship.crew = _.filter(ship.crew, function(person) {
         return !(person.markedForRemoval === true);
     });
 
+    //Brawl cleanup
+    _.each(ship.crew, function(person) {
+        if (person.queue[0] && person.queue[0].name === "Brawl" && person.queue[0].what.hp <= 0) {
+            console.log('Found redundant brawl action, removing from ' + person.name);
+            person.queue.shift();
+        }
+    });
+
+    //Remove items
     _.each(rooms, function(room) {
         room.items = _.filter(room.items, function(item) {
             return !(item.markedForRemoval === true);
         });
     });
 
+    //Decay information
     _.each(information, function(info) {
         info.decay = info.decay + 1;
     });
@@ -758,3 +768,7 @@ setInterval(function() {
     if (HALTED) return;
     gameTick();
 }, TICK_DURATION);
+
+//brawl(player, bedroom.items[0]);
+brawl(medic, bedroom.items[0]);
+//move(player, kitchen);
