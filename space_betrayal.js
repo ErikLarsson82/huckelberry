@@ -3,6 +3,10 @@
 // - Pilot ger orderstatus på motor och hull breach
 // - Dela upp filen, requireJS
 
+// Sub tasks information
+// - Brawl
+// - Report återger data om goo och aliens
+
 var TICK_DURATION = 2000;
 var HALTED = true;
 
@@ -64,6 +68,7 @@ var Information = function(type, who, where, value) {
     this.person = who;
     this.room = where;
     this.value = value;
+    this.decay = 0;
 }
 
 // People 
@@ -177,7 +182,7 @@ var shieldroom = new Room("Shieldroom  ");
 var escapePod1 = new Room("Escape pod 1");
 var escapePod2 = new Room("Escape pod 2");
 
-var crew = [player, medic]; //, mechanic, mercenary, pilot];
+var crew = [player, medic, pilot]; //, mechanic, mercenary, ];
 
 var information = [];
 
@@ -195,8 +200,8 @@ var door7 = new Door(kitchen, escapePod1);
 var door8 = new Door(medbay, escapePod2);
 
 medbay.crew = [];
-bridge.crew = [player, medic];
-kitchen.crew = [];
+bridge.crew = [pilot, player];
+kitchen.crew = [medic];
 bedroom.crew = [];
 storageroom.crew = [];
 engineroom.crew = [];
@@ -579,7 +584,7 @@ var printShipStatus = function() {
             if (applicableInfo.length > 0) {
                 var log = '                        { ';
                 _.each(applicableInfo, function(info) {
-                    log += info.person.name + '(' + ((info.type === GOO_STATUS) ? info.type : info.value) + '), ';
+                    log += info.person.name + '(' + ((info.type === GOO_STATUS) ? info.type : info.value) + ')' + info.decay + ', ';
                 })
                 console.log(log + '}');
             }
@@ -591,7 +596,7 @@ var printShipStatus = function() {
         return info.type === ENGINE_STATUS;
     });
     if (applicableInfo.length > 0) {
-        console.log('          Engine      : (' + applicableInfo[0].value + ')');
+        console.log('          Engine      : (' + applicableInfo[0].value + ')' + applicableInfo[0].decay);
     } else {
         console.log("          Engine      : -");
     }
@@ -607,7 +612,7 @@ var printShipStatus = function() {
         return info.type === HULL_STATUS;
     });
     if (applicableInfo.length > 0) {
-        console.log('          Hull breach : (' + applicableInfo[0].value + ')');
+        console.log('          Hull breach : (' + applicableInfo[0].value + ')' + applicableInfo[0].decay);
     } else {
         console.log("          Hull breach : -");
     }
@@ -627,6 +632,10 @@ var gameTick = function() {
         _.each(room.items, function(item) {
             item.tick && item.tick();
         });
+    });
+
+    _.each(information, function(info) {
+        info.decay = info.decay + 1;
     });
     printShipStatus();
 }
