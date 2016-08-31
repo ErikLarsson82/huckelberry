@@ -1,5 +1,7 @@
 //TODO
 // - Order via telecom om uppe
+// - Starta random platser
+// - Move chaincommand
 // - Dela upp filen, requireJS
 
 // Sub tasks information
@@ -26,11 +28,11 @@ var DEBUG_SHOW_TRUE_VALUES = false;
 var DEBUG_SHOW_HIDDEN_ITEMS = false;
 var DEBUG_SHOW_ALL_ITEMS = false;
 var DEBUG_SHOW_ALL_CREW = false;
-var DEBUG_SEED = false;
+var DEBUG_SEED = 2741;
 
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
-var GOO_IN_RANDOM_ROOM = false;
+var GOO_IN_RANDOM_ROOM = true;
 var ALIEN_IN_BEDROOM = false;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
@@ -266,7 +268,7 @@ var shieldroom = new Room("Shieldroom  ");
 var escapePod1 = new Room("Escape pod 1");
 var escapePod2 = new Room("Escape pod 2");
 
-var crew = [player, medic, pilot]; //, mechanic, mercenary, ];
+var crew = [player, medic, pilot, mechanic, mercenary];
 
 var information = [];
 
@@ -285,7 +287,7 @@ var door8 = new Door(medbay, escapePod2);
 
 medbay.crew = [];
 bridge.crew = [];
-kitchen.crew = [player];
+kitchen.crew = [player, mechanic, mercenary];
 bedroom.crew = [medic];
 storageroom.crew = [pilot];
 engineroom.crew = [];
@@ -405,7 +407,9 @@ var searchTheShip = function() {
 }
 
 var reportAll = function() {
-    _.chain(crew).filter(function(person) { return !(person.name === "You") }).each(function(person) { report(person) });
+    _.chain(crew).filter(function(person) {
+        return (!(person.name === "You") && findPerson(person) !== findPerson(player))
+    }).each(function(person) { report(person) });
 }
 
 var report = function(who, prio) {
@@ -685,7 +689,7 @@ var printShipStatus = function() {
         var roomclear = _.filter(information, function(info) {
             return info.type === ROOM_CLEAR_STATUS && info.room === room;
         });
-        var roomclearOutput = (roomclear[0]) ? "[C]" + roomclear[0].decay + " " : "";
+        var roomclearOutput = (roomclear[0]) ? '(' + roomclear[0].person.name + "[C]" + roomclear[0].decay + ") " : "";
         console.log("          " + room.name + ": " + roomclearOutput + prettyPeople);
         var items = _.filter(room.items, function(item) {
             if (DEBUG_SHOW_HIDDEN_ITEMS && item.hidden === true) {
