@@ -33,7 +33,7 @@ var DEBUG_SEED = 3375;
 
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
-var GOO_IN_RANDOM_ROOM = true;
+var GOO_IN_RANDOM_ROOM = false;
 var ALIEN_IN_BEDROOM = false;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
@@ -89,6 +89,7 @@ var Person = function(name, idx) {
     this.name = name;
     this.idx = idx;
     this.queue = [];
+    this.markedForRemoval = false;
 
     this.tick = function() {
         if (this.queue.length > 0) {
@@ -142,8 +143,9 @@ var Goo = function() {
     this.name = 'Goo';
     this.hp = 4;
     this.hidden = true;
-    this.activationTime = 6;
+    this.activationTime = 12;
     this.type = GOO_STATUS;
+    this.markedForRemoval = false;
     this.tick = function() {
         var room = findRoomByItemInstance(this);
         if (countAliensInRoom(room).length < 1) {
@@ -166,8 +168,10 @@ var Goo = function() {
                         });
                         if (others.length > 0 && this.hidden === false) {
                             addInformation(new Information(ALIEN_STATUS, others[0], findPerson(others[0]), spawningAlien.name));
-                            console.log('*** ' + others[0].name + ' ive found an Alien ***');
-                            // Start brawl!?
+                            console.log('*** ' + others[0].name + ' ive found an Alien and will brawl it ***');
+                            
+                            clearPersonsQueuedActions(others[0]);
+                            brawl(others[0], spawningAlien);
                         }
                     }
                 }
@@ -183,6 +187,12 @@ var Alien = function() {
     this.hp = 2;
     this.hidden = false;
     this.type = ALIEN_STATUS;
+    this.markedForRemoval = false;
+    this.tick = function() {
+        if (this.hp <= 0) {
+            this.markedForRemoval = true;
+        }
+    }
 }
 
 var bridge = new Room("Bridge      ");
@@ -212,7 +222,7 @@ var door6 = new Door(medbay, storageroom);
 var door7 = new Door(kitchen, escapePod1);
 var door8 = new Door(medbay, escapePod2);
 
-medbay.crew = [pilot];
+medbay.crew = [];
 bridge.crew = [medic];
 kitchen.crew = [player];
 bedroom.crew = [];
@@ -312,6 +322,23 @@ var fixEngine = function(who) {
 }
 
 // People functions
+var brawl = function(who, what) {
+    var action = {
+        name: "Brawl",
+        shortName: "B",
+        duration: 4,
+        event: function(duration) {
+            if (duration === 0) {
+                console.log('Killed ' + what.name);
+                what.hp = 0;
+            }
+            return true;
+        }.bind(who)
+    }
+    who.queue.push(action);
+    return "Brawling scheduled";
+}
+
 var searchTheShip = function() {
     _.each(crew, function(person) {
         investigate(person);
@@ -433,6 +460,10 @@ var investigate = function(who) {
 
 var removeQueuedAction = function(who) {
     who.queue.shift();
+}
+
+var clearPersonsQueuedActions = function(person) {
+    person.queue.length = 0;
 }
 
 var clearAllQueuedActions = function() {
@@ -665,6 +696,16 @@ var gameTick = function() {
     _.each(rooms, function(room) {
         _.each(room.items, function(item) {
             item.tick && item.tick();
+        });
+    });
+
+    ship.crew = _.filter(ship.crew, function(person) {
+        return !(person.markedForRemoval === true);
+    });
+
+    _.each(rooms, function(room) {
+        room.items = _.filter(room.items, function(item) {
+            return !(item.markedForRemoval === true);
         });
     });
 
