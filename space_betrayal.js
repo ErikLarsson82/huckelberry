@@ -4,9 +4,7 @@
 
 // Sub tasks information
 // - Hantera conflicting info ??
-// - Refaktorera informationssystemet med lokal information per person som rapporteras i klump
 // - Investigation ska rapportera aliens också, men inte om hen brawlar
-// - remove duplicated report queues after each other
 
 var TICK_DURATION = 2000;
 var HALTED = true;
@@ -28,7 +26,7 @@ var DEBUG_SHOW_TRUE_VALUES = false;
 var DEBUG_SHOW_HIDDEN_ITEMS = false;
 var DEBUG_SHOW_ALL_ITEMS = false;
 var DEBUG_SHOW_ALL_CREW = false;
-var DEBUG_SEED = 3375;
+var DEBUG_SEED = false;
 
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
@@ -37,7 +35,7 @@ var ALIEN_IN_BEDROOM = false;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
 
-var SCENARIO = 4;
+var SCENARIO = false;
 
 document.addEventListener("keydown", function(e) {
     if (e.code === "Space") {
@@ -75,6 +73,7 @@ var Information = function(type, who, where, value) {
     this.value = value;
     this.decay = 0;
     this.seenByPlayer = false;
+    this.markedForRemoval = false;
 }
 
 var addInformation = function(list, inputInfo) {
@@ -95,10 +94,14 @@ var Person = function(name, idx) {
     this.iShouldReportThis = false;
     this.information = [];
     this.addInformation = function(inputInfo) {
-        this.information = addInformation.call(null, this.information, inputInfo);
+        if (findPerson(this) !== findPerson(player)) {
+            this.information = addInformation.call(null, this.information, inputInfo);
+        }
     };
     this.foundAlien = function(alien) {
-        this.iShouldReportThis = true;
+        if (findPerson(this) !== findPerson(player)) {
+            this.iShouldReportThis = true;
+        }
         this.addInformation(new Information(ALIEN_STATUS, this, findPerson(this), alien));
     };
 
@@ -138,15 +141,28 @@ var mixinAI = function(person) {
         } else {
             if (this.iShouldReportThis) {
                 this.iShouldReportThis = false;
-                report(person);
+                report(person, true);
             }
         }
         preserve.call(person);
     }
 }
 
+var mixinPlayer = function(player) {
+    var preserve = player.tick;
+    player.tick = function() {
+        _.each(information, function(info) {
+            if (info.room === findPerson(player)) {
+                info.markedForRemoval = true;
+            }
+        })
+        preserve.call(player);
+    }
+}
+
 
 var player = new Person("You", 0);
+mixinPlayer(player);
 
 var medic = new Person("Medic", 1);
 mixinAI(medic);
@@ -213,11 +229,6 @@ var Goo = function() {
                                 clearPersonsQueuedActions(person);
                                 brawl(person, spawningAlien);
                             })
-                            /*addInformation(new Information(ALIEN_STATUS, others[0], findPerson(others[0]), spawningAlien.name));
-                            console.log('*** ' + others[0].name + ' ive found an Alien and will brawl it ***');
-                            
-                            clearPersonsQueuedActions(others[0]);
-                            brawl(others[0], spawningAlien);*/
                         }
                     }
                 }
@@ -236,7 +247,7 @@ var Alien = function() {
     this.markedForRemoval = false;
     this.tick = function() {
         if (this.hp <= 0) {
-            console.log('Killed ' + this.name);
+            if (findAlien(this) === findPerson(player)) console.log('-> Killed ' + this.name);
             _.each(findAlien(this).crew, function(person) {
                 person.defeatedAlien(this);
             }.bind(this));
@@ -397,7 +408,7 @@ var reportAll = function() {
     _.chain(crew).filter(function(person) { return !(person.name === "You") }).each(function(person) { report(person) });
 }
 
-var report = function(who) {
+var report = function(who, prio) {
     if (who.name === "You") return;
     var action = {
         name: "Report",
@@ -405,24 +416,23 @@ var report = function(who) {
         duration: 1,
         event: function(duration) {
             if (duration === 0) {
-                _.each(who.information, function(info) {
-                    information = addInformation(information, info);                    
-                });
-                who.information = [];
-                /*addInformation(new Information(LOCATION_STATUS, who, findPerson(who)));
-                var log = '*** ' + who.name + ': Im at ' + findPerson(who).name;
-                if (findPerson(who) === bridge && who.name === "Pilot") {
-                    addInformation(new Information(ENGINE_STATUS, who, findPerson(who), engine.status));
-                    addInformation(new Information(HULL_STATUS, who, findPerson(who), controlPanel.breachDetected));
-                    log += ', also reporting ship data';
+                if (who.information.length === 0) {
+                    information = addInformation(information, new Information(ROOM_CLEAR_STATUS, who, findPerson(who), ""));
+                } else {
+                    _.each(who.information, function(info) {
+                        information = addInformation(information, info);                    
+                    });
                 }
-                log += ' ***';
-                console.log(log);*/
+                who.information = [];
             }
             return true;
         }.bind(who)
     }
-    who.queue.push(action);
+    if (prio) {
+        who.queue.unshift(action);
+    } else {
+        who.queue.push(action);
+    }
     return "Report scheduled";
 }
 
@@ -440,16 +450,9 @@ var move = function(who, where) {
                     var items = _.filter(where.items, function(item) {
                         return (item instanceof Alien || item instanceof Goo) && (item.hidden === false);
                     });
-                    if (items.length > 0) {
-                        addInformation(new Information(LOCATION_STATUS, who, findPerson(who)));
-                    }
-                    _.each(items, function(item) {
-                        
-                        addInformation(new Information(item.type, who, findPerson(who), item.name));
-                        console.log('*** ' + who.name + ' ive found an ' + item.name + ' ***');
+                    _.each(items, function(item) {    
+                        who.addInformation(new Information(item.type, who, findPerson(who), item));
                     });
-                } else {
-                    console.log('notify?');
                 }
 
                 return result;
@@ -483,11 +486,6 @@ var investigate = function(who) {
                     } else {
                         who.iShouldReportThis = true;
                         who.addInformation(new Information(ROOM_CLEAR_STATUS, who, findPerson(who), ""));
-                        /*addInformation(new Information(LOCATION_STATUS, who, findPerson(who)));
-                        console.log('*** ' + who.name + ': Investigation complete at ' + findPerson(who).name + ', nothing new ***');
-                        if (room.items.length === 0) {
-                            addInformation(new Information(ROOM_CLEAR_STATUS, who, findPerson(who)));
-                        }*/
                     }
                 } else {
                     if (findPerson(player) === room) {
@@ -501,11 +499,6 @@ var investigate = function(who) {
                             who.iShouldReportThis = true;
                             who.addInformation(new Information(item.type, who, findPerson(who), item));
                         })
-                        /*addInformation(new Information(LOCATION_STATUS, who, findPerson(who)));
-                        _.each(foundItems, function(item) {
-                            console.log('*** ' + who.name + ': Investigation complete, found ' + item.name + ' ***');
-                            addInformation(new Information(item.type, who, findPerson(who)));
-                        });*/
                     }
                 }
             }
@@ -624,6 +617,21 @@ var isLegalMove = function(who, where) {
     return legal;
 }
 
+var transferInformationIfApplicable = function() {
+    _.each(crew, function(person) {
+        if (person !== player && (findPerson(person) === findPerson(player))) {
+            _.each(person.information, function(info) {
+                information = addInformation(information, info);                    
+            });
+            person.queue = _.filter(person.queue, function(action) {
+                return (action.name !== "Report");
+            })
+            person.iShouldReportThis = false;
+            person.information = [];
+        }
+    })
+}
+
 var executeMove = function(who, where) {
     if (!who) {
         console.log('Who?');
@@ -643,6 +651,8 @@ var executeMove = function(who, where) {
     })
 
     where.crew.push(who);
+
+    transferInformationIfApplicable();
 
     return true;
 }
@@ -690,21 +700,20 @@ var printShipStatus = function() {
                 _.each(items, function(item) {
                     prettyItems += item.name + ', '
                 });
-                console.log('                        { ' + prettyItems + ' }');
+                console.log('                        < ' + prettyItems + ' >');
             }
-        } else {
-            var applicableInfo = _.filter(information, function(info) {
-                return ((info.type === ALIEN_STATUS) || (info.type === GOO_STATUS) || info.type === ALIEN_DEFEATED_STATUS) && room === info.room;
-            });
-            if (applicableInfo.length > 0) {
-                var log = '                        { ';
-                _.each(applicableInfo, function(info) {
-                    var newChars = (info.seenByPlayer === false) ? ' %%%%%%% ' : "";
-                    info.seenByPlayer = true;
-                    log += newChars + info.person.name + '(' + info.type + ')' + info.decay + newChars + ', ';
-                })
-                console.log(log + '}');
-            }
+        }
+        var applicableInfo = _.filter(information, function(info) {
+            return ((info.type === ALIEN_STATUS) || (info.type === GOO_STATUS) || info.type === ALIEN_DEFEATED_STATUS) && room === info.room;
+        });
+        if (applicableInfo.length > 0) {
+            var log = '                        { ';
+            _.each(applicableInfo, function(info) {
+                var newChars = (info.seenByPlayer === false) ? ' %%%%%%% ' : "";
+                info.seenByPlayer = true;
+                log += newChars + info.person.name + '(' + info.type + ')' + info.decay + newChars + ', ';
+            })
+            console.log(log + '}');
         }
     });
     console.log("   Ship status:");
@@ -779,7 +788,6 @@ var gameTick = function() {
     //Brawl cleanup
     _.each(ship.crew, function(person) {
         if (person.queue[0] && person.queue[0].name === "Brawl" && person.queue[0].what.hp <= 0) {
-            console.log('Found redundant brawl action, removing from ' + person.name);
             person.queue.shift();
         }
     });
@@ -799,6 +807,11 @@ var gameTick = function() {
         _.each(person.information, function(info) {
             info.decay = info.decay + 1;
         })
+    });
+
+    //Remove old information
+    information = _.filter(information, function(info) {
+        return !(info.markedForRemoval);
     });
 
     printShipStatus();
@@ -940,6 +953,104 @@ if (SCENARIO !== false) {
             gameTick();
             gameTick();
             gameTick();
+        break;
+        case 5:
+            console.log('Medic and alien in bedroom, he defeates it, reports it, moves to kitchen where he also defeats alien, then reports rest');
+            bridge.crew = [player];
+            medbay.crew = [];
+            storageroom.crew = [];
+            kitchen.crew = [];
+            engineroom.crew = [];
+            bedroom.crew = [medic];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+            var spawningAlien = new Alien();
+            bedroom.items.push(spawningAlien);
+            var spawningAlien = new Alien();
+            kitchen.items.push(spawningAlien);
+            gameTick();
+            move(medic, kitchen);
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            /*gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();*/
+        break;
+        case 6:
+            console.log('Medic and alien in bedroom, he defeates it and moves to kitchen where he meets player and informs him');
+            bridge.crew = [];
+            medbay.crew = [];
+            storageroom.crew = [];
+            kitchen.crew = [player];
+            engineroom.crew = [];
+            bedroom.crew = [medic];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+            var spawningAlien = new Alien();
+            bedroom.items.push(spawningAlien);
+            gameTick();
+            move(medic, kitchen);
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+        break;
+        case 7:
+            console.log('Medic and alien in bedroom, he defeates it, reports it, moves to kitchen where he find alien, then player walks in');
+            bridge.crew = [player];
+            medbay.crew = [];
+            storageroom.crew = [];
+            kitchen.crew = [];
+            engineroom.crew = [];
+            bedroom.crew = [medic];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+            var spawningAlien = new Alien();
+            bedroom.items.push(spawningAlien);
+            var spawningAlien = new Alien();
+            kitchen.items.push(spawningAlien);
+            gameTick();
+            move(medic, kitchen);
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            move(player, kitchen);
+            gameTick();
+            gameTick();
+            //gameTick();
         break;
     }
 } else {
