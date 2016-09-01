@@ -1,8 +1,6 @@
 //TODO
 // - Order via telecom om uppe
-// - Starta random platser
 // - searchrepeat
-// - goo + alien kan spawna
 // - seal goo breach med verktyg
 // - syrenivåer
 // - Dela upp filen, requireJS
@@ -28,22 +26,25 @@ var GOO_STATUS = "Goo";
 var ROOM_CLEAR_STATUS = "Room clear";
 var ROOM_EMPTY_STATUS = "Room empty";
 
+var SCENARIO = false;
+
+var DEBUG_SEED = false;
+
 var DEBUG_SHOW_TRUE_VALUES = false;
 var DEBUG_SHOW_HIDDEN_ITEMS = false;
 var DEBUG_SHOW_ALL_ITEMS = false;
 var DEBUG_SHOW_ALL_CREW = false;
 var DEBUG_SHOW_HIDDEN_LOGS = false;
-var DEBUG_DISABLE_RANDOM_CREW = true;
-var DEBUG_SEED = 9891;
+var DEBUG_DISABLE_RANDOM_CREW = false;
+var DEBUG_DISABLE_MISSION = false;
 
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
-var GOO_IN_RANDOM_ROOM = !false;
+var GOO_IN_RANDOM_ROOM = false;
 var ALIEN_IN_BEDROOM = false;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
 
-var SCENARIO = false;
 
 document.addEventListener("keydown", function(e) {
     if (e.code === "Space") {
@@ -1153,6 +1154,73 @@ var gameTick = function() {
 
     printShipStatus();
 }
+
+
+if (!DEBUG_DISABLE_MISSION) {
+    var result = Math.random();
+    var stuff = [
+        function() {
+            var crewExceptYou = _.filter(crew, function(person) {
+                return (person !== player);
+            })
+            var target = crewExceptYou[Math.floor(Math.random() * crewExceptYou.length)];
+            target.conscious = false;
+            var rest = _.filter(crewExceptYou, function(person) {
+                return (person !== target)
+            });
+            var finder = rest[Math.floor(Math.random() * rest.length)];
+            findPerson(finder).crew = _.filter(findPerson(finder).crew, function(person) {
+                return (person !== finder);
+            })
+            findPerson(target).crew.push(finder);
+            console.log(finder.name + " finds "+target.name+" unconsious");
+        },
+        function() {
+            engine.status = BROKEN;
+            console.log("You feel the ship rumbling, something seems off");
+        },
+        function() {
+            var countRooms = rooms.length;
+            var randomIndex = Math.floor(Math.random() * countRooms);
+            controlPanel.breachDetected = true;
+            rooms[randomIndex].items.push(new Goo());
+            console.log("You feel the ship rumbling, something seems off");
+        },
+        function() {
+            var countRooms = rooms.length;
+            var randomIndex = Math.floor(Math.random() * countRooms);
+            controlPanel.breachDetected = true;
+            rooms[randomIndex].items.push(new Goo());
+            var spawningAlien = new Alien();
+            rooms[randomIndex].items.push(spawningAlien);
+            console.log("You feel the ship rumbling, something seems off");
+        },
+        function() {
+            var countRooms = rooms.length;
+            var randomIndex = Math.floor(Math.random() * countRooms);
+            controlPanel.breachDetected = true;
+            rooms[randomIndex].items.push(new Goo());
+            var spawningAlien = new Alien();
+            rooms[randomIndex].items.push(spawningAlien);
+
+            engine.status = BROKEN;
+            console.log("You feel the ship rumbling, something seems off");
+        },
+    ];
+
+    if (result < 0.2) {
+        stuff[0]();
+    } else if (result < 0.4) {
+        stuff[1]();
+    } else if (result < 0.6) {
+        stuff[2]();
+    } else if (result < 0.9) {
+        stuff[3]();
+    } else {
+        stuff[4]();
+    }
+}
+
 
 // Temp start conditions
 if (BREAK_ENGINE_ON_STARTUP) {
