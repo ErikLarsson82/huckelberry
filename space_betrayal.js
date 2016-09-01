@@ -30,22 +30,23 @@ var ALIEN_STATUS = "Alien";
 var ALIEN_DEFEATED_STATUS = "Alien defeated";
 var GOO_STATUS = "Goo";
 var ROOM_CLEAR_STATUS = "Room clear";
+var ROOM_EMPTY_STATUS = "Room empty";
 
 var DEBUG_SHOW_TRUE_VALUES = false;
 var DEBUG_SHOW_HIDDEN_ITEMS = false;
 var DEBUG_SHOW_ALL_ITEMS = false;
 var DEBUG_SHOW_ALL_CREW = false;
-var DEBUG_SHOW_HIDDEN_LOGS = true;
-var DEBUG_SEED = 2741;
+var DEBUG_SHOW_HIDDEN_LOGS = false;
+var DEBUG_SEED = 9414;
 
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
-var GOO_IN_RANDOM_ROOM = false;
+var GOO_IN_RANDOM_ROOM = !false;
 var ALIEN_IN_BEDROOM = false;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
 
-var SCENARIO = 9;
+var SCENARIO = 10;
 
 document.addEventListener("keydown", function(e) {
     if (e.code === "Space") {
@@ -151,20 +152,20 @@ var mixinAI = function(person) {
         }
         if (!this.conscious) return;
 
-        var aliens = _.filter(findPerson(person).items, function(item) {
+        var aliens = _.filter(findPerson(this).items, function(item) {
            return item.type === "Alien"; 
         });
         if (aliens.length > 0) {
             _.each(aliens, function(alien) {
-                person.foundAlien(alien);
-            });
-            if (person.queue.length === 0) {
-                brawl(person, aliens[0]);
+                this.foundAlien(alien);
+            }.bind(this));
+            if (this.queue.length === 0) {
+                brawl(this, aliens[0]);
             }
         } else {
             if (this.iShouldReportThis) {
                 this.iShouldReportThis = false;
-                report(person, true);
+                report(this, isAnyInformationCritical(this.information));
             }
         }
         preserve.call(person);
@@ -178,10 +179,10 @@ var mixinPlayer = function(player) {
             console.log("*** GAME OVER, YOU ARE DEAD");
         }
         _.each(information, function(info) {
-            if (info.room === findPerson(player)) {
+            if (info.room === findPerson(this)) {
                 info.markedForRemoval = true;
             }
-        })
+        }.bind(this))
         preserve.call(player);
     }
 }
@@ -503,7 +504,7 @@ var report = function(who, prio) {
         event: function(duration) {
             if (duration === 0) {
                 if (who.information.length === 0) {
-                    information = addInformation(information, new Information(ROOM_CLEAR_STATUS, who, findPerson(who), ""));
+                    information = addInformation(information, new Information(ROOM_EMPTY_STATUS, who, findPerson(who), ""));
                 } else {
                     _.each(who.information, function(info) {
                         information = addInformation(information, info);                    
@@ -550,6 +551,62 @@ var move = function(who, where) {
     return "Move scheduled";
 }
 
+var moveRoute = function(who, where) {
+    var route = findRoute(findPerson(who), where);
+    if (route) {
+        route.shift();
+        _.each(route, function(stop) {
+            move(who, stop);
+        });
+        return "Route scheduled with " + (route.length - 1) + ' stops';
+    } else {
+        return "Route failed"
+    }
+}
+
+var moveAndReportRoute = function(who, where) {
+    var route = findRoute(findPerson(who), where);
+    if (route) {
+        route.shift();
+        _.each(route, function(stop) {
+            move(who, stop);
+            report(who);
+        });
+        return "Route scheduled with " + (route.length - 1) + ' stops';
+    } else {
+        return "Route failed"
+    }
+}
+
+var moveInvestigateAndReportRoute = function(who, where) {
+    var route = findRoute(findPerson(who), where);
+    if (route) {
+        route.shift();
+        _.each(route, function(stop) {
+            move(who, stop);
+            investigate(who);
+            report(who);
+        });
+        return "Route scheduled with " + (route.length - 1) + ' stops';
+    } else {
+        return "Route failed"
+    }
+}
+
+var moveInvestigateRoute = function(who, where) {
+    var route = findRoute(findPerson(who), where);
+    if (route) {
+        route.shift();
+        _.each(route, function(stop) {
+            move(who, stop);
+            investigate(who);
+        });
+        return "Route scheduled with " + (route.length - 1) + ' stops';
+    } else {
+        return "Route failed"
+    }
+}
+
 var investigate = function(who) {
     if (!who) {
         console.log('Who?');
@@ -568,7 +625,7 @@ var investigate = function(who) {
                 var foundItems = revealHiddenItemsInRoom(room);
                 if (foundItems.length === 0) {
                     if (findPerson(player) === room) {
-                        console.log('*** ' + who.name + ': Investigation complete, nothing new found ***');
+                        logIfApplicable(who.name + ': Investigation complete, nothing new found', findPerson(player));
                     } else {
                         who.iShouldReportThis = true;
                         who.addInformation(new Information(ROOM_CLEAR_STATUS, who, findPerson(who), ""));
@@ -579,7 +636,7 @@ var investigate = function(who) {
                         _.each(foundItems, function(item) {
                             items += item.name + ', ';
                         });
-                        console.log('*** ' + who.name + ' are done with investigation, found ' + items + ' ***');
+                        logIfApplicable(who.name + ' are done with investigation, found ' + items, findPerson(player));
                     } else {
                         _.each(foundItems, function(item) {
                             who.iShouldReportThis = true;
@@ -666,6 +723,13 @@ var modifyAllDoorsStatus = function(status) {
 }
 
 // Help functions
+var isAnyInformationCritical = function(information) {
+    var criticalInfo = _.filter(information, function(info) {
+        return (info.type === ALIEN_STATUS || info.type === ALIEN_DEFEATED_STATUS || info.type === GOO_STATUS);
+    });
+    return (criticalInfo.length > 0);
+}
+
 var findRoute = function(from, to) {
     var route = [];
     var visitedRooms = [];
@@ -683,7 +747,6 @@ var findRoute = function(from, to) {
         route.push(currentRoom);
         
         if (currentRoom === to) {
-            console.log('found it, returning true');
             return true;
         }
 
@@ -835,11 +898,15 @@ var printShipStatus = function() {
                 prettyPeople = "-";
             }
         }
-        var roomclear = _.filter(information, function(info) {
+        var roomClear = _.filter(information, function(info) {
             return info.type === ROOM_CLEAR_STATUS && info.room === room;
         });
-        var roomclearOutput = (roomclear[0]) ? '(' + roomclear[0].person.name + "[C]" + roomclear[0].decay + ") " : "";
-        console.log("          " + room.name + ": " + roomclearOutput + prettyPeople);
+        var roomEmpty = _.filter(information, function(info) {
+            return info.type === ROOM_EMPTY_STATUS && info.room === room;
+        });
+        var roomClearOutput = (roomClear[0]) ? '(' + roomClear[0].person.name + "[C]" + roomClear[0].decay + ") " : "";
+        var roomEmptyOutput = (roomEmpty[0]) ? '(' + roomEmpty[0].person.name + "[E]" + roomEmpty[0].decay + ") " : "";
+        console.log("          " + room.name + ": " + roomClearOutput + roomEmptyOutput + prettyPeople);
         var items = _.filter(room.items, function(item) {
             if (DEBUG_SHOW_HIDDEN_ITEMS && item.hidden === true) {
                 return true;
@@ -1233,6 +1300,18 @@ if (SCENARIO !== false) {
             var spawningAlien = new Alien();
             bridge.items.push(spawningAlien);
             gameTick();
+        break;
+        case 10:
+            bridge.crew = [medic]; //, , mechanic
+            medbay.crew = [];
+            storageroom.crew = [player];
+            kitchen.crew = [];
+            engineroom.crew = [];
+            bedroom.crew = [];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+            printShipStatus();
         break;
     }
 } else {
