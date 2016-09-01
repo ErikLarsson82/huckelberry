@@ -4,8 +4,7 @@
 // - Move chaincommand
 // - searchrepeat
 // - goo + alien kan spawna
-// - slänga goo i kitchen ?
-// - seal breach med verktyg
+// - seal goo breach med verktyg
 // - syrenivåer
 // - få mindre HP av brawl med aliens
 // - kan bli medvetslös
@@ -667,6 +666,45 @@ var modifyAllDoorsStatus = function(status) {
 }
 
 // Help functions
+var findRoute = function(from, to) {
+    var route = [];
+    var visitedRooms = [];
+    var routesLeft = true;
+    var tries = 0;
+    
+    var tryAllRooms = function(currentRoom) {
+        tries = tries + 1;
+        if (tries > 50) {
+            console.log('failsafe in recursive algorithm activated');
+            return false;
+        }
+        
+        visitedRooms.push(currentRoom);
+        route.push(currentRoom);
+        
+        if (currentRoom === to) {
+            console.log('found it, returning true');
+            return true;
+        }
+
+        var gonnaVisit = _.filter(currentRoom.connections, function(room) {
+            return (!_.contains(visitedRooms, room));
+        })
+
+        var foundIt = false;
+        _.each(gonnaVisit, function(room) {
+            if (tryAllRooms(room)) {
+                foundIt = true;
+            } else {
+                route.pop();
+            }
+        })
+        if (foundIt) return route;
+        return false;
+    }
+    return tryAllRooms(from);
+}
+
 var canBeHit = function(who) {
     return (who.conscious === true && who.hp > 1);
 }
