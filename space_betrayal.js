@@ -37,12 +37,12 @@ var DEBUG_SEED = false;
 
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
-var GOO_IN_RANDOM_ROOM = false;
+var GOO_IN_RANDOM_ROOM = !false;
 var ALIEN_IN_BEDROOM = false;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
 
-var SCENARIO = 12;
+var SCENARIO = false;
 
 document.addEventListener("keydown", function(e) {
     if (e.code === "Space") {
@@ -104,6 +104,17 @@ var Person = function(name, idx) {
     this.conscious = true;
     this.inventory = [];
     this.firemanCarry = null;
+    this.hurt = function(what) {
+        if (what instanceof Alien) {
+            if (this.firemanCarry) {
+                this.hp = this.hp - 3;
+                return 3;
+            } else {
+                this.hp = this.hp - 1;
+                return 1;
+            }
+        }
+    }
     this.addInformation = function(inputInfo) {
         if (findPerson(this) !== findPerson(player) && this.conscious) {
             this.information = addInformation.call(null, this.information, inputInfo);
@@ -303,22 +314,21 @@ var Alien = function() {
                 logIfApplicable('Alien has noone to hurt', alienRoom);
                 return;
             }
-
             if (amountBrawling.length === 0) {
                 var randomidx = Math.floor(Math.random() * eligble.length)
                 var person = eligble[randomidx];
-                person.hp = person.hp - 1;
+                var dmg = person.hurt(this);
                 var random = (eligble.length > 1) ? 'randomly ' : ''
-                logIfApplicable('Alien ' + random + 'hurts ' + person.name + ' for 1 HP, now he has ' + person.hp, alienRoom);
+                logIfApplicable('Alien ' + random + 'hurts ' + person.name + ' for ' + dmg + ' HP, now he has ' + person.hp, alienRoom);
             } else if (amountBrawling.length === 1) {
-                amountBrawling[0].hp = amountBrawling[0].hp - 1;
-                logIfApplicable('Alien hurts lone brawler ' + amountBrawling[0].name + ' for 1 HP, now he has ' + amountBrawling[0].hp, alienRoom);
+                var dmg = amountBrawling[0].hurt(this);
+                logIfApplicable('Alien hurts lone brawler ' + amountBrawling[0].name + ' for '+dmg+' HP, now he has ' + amountBrawling[0].hp, alienRoom);
             } else {
                 if (Math.random() > 0.8) {
                     var randomidx = Math.floor(Math.random() * amountBrawling.length)
                     var person = amountBrawling[randomidx];
-                    person.hp = person.hp - 1;
-                    logIfApplicable('Alien hurts brawler ' + person.name + ' for 1 HP, now he has ' + person.hp, alienRoom);
+                    var dmg = person.hurt(this);
+                    logIfApplicable('Alien hurts brawler ' + person.name + ' for '+dmg+' HP, now he has ' + person.hp, alienRoom);
                 } else {
                     logIfApplicable('Alien failed to hurt ' + prettyList(_.pluck(amountBrawling, 'name')) + ' because they where many', alienRoom);
                 }
@@ -638,7 +648,7 @@ var moveAndReportRoute = function(who, where) {
     }
 }
 
-var moveInvestigateAndReportRoute = function(who, where) {
+var movevteAndReportRoute = function(who, where) {
     var route = findRoute(findPerson(who), where);
     if (route) {
         route.shift();
@@ -672,6 +682,8 @@ var investigate = function(who) {
         console.log('Who?');
         return false;
     }
+    if (who.firemanCarry) return who.name + " cannot investigate when carrying someone";
+
     var action = {
         name: "Investigate",
         shortName: "I",
@@ -939,6 +951,9 @@ var printShipStatus = function() {
                 if (person.queue.length > 0) {
                     var duration = (person.queue[0].duration > 100) ? "~" : person.queue[0].duration;
                     prettyPerson += "[" + person.queue[0].shortName + "-" + duration + "]";
+                }
+                if (person.firemanCarry) {
+                    prettyPerson += "\\"+person.firemanCarry.name+"/"   
                 }
                 prettyPeople += prettyPerson + ", ";
             });
@@ -1417,6 +1432,11 @@ if (SCENARIO !== false) {
             escapePod2.crew = [];
             firemanCarry(player, mechanic);
             gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            var spawningAlien = new Alien();
+            bridge.items.push(spawningAlien);
         break;
     }
 } else {
