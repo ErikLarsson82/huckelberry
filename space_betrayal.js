@@ -2,6 +2,14 @@
 // - Order via telecom om uppe
 // - Starta random platser
 // - Move chaincommand
+// - searchrepeat
+// - goo + alien kan spawna
+// - slänga goo i kitchen ?
+// - seal breach med verktyg
+// - syrenivåer
+// - få mindre HP av brawl med aliens
+// - kan bli medvetslös
+// - medvetslös -> vaken av luktsalt
 // - Dela upp filen, requireJS
 
 // Sub tasks information
@@ -28,16 +36,17 @@ var DEBUG_SHOW_TRUE_VALUES = false;
 var DEBUG_SHOW_HIDDEN_ITEMS = false;
 var DEBUG_SHOW_ALL_ITEMS = false;
 var DEBUG_SHOW_ALL_CREW = false;
+var DEBUG_SHOW_HIDDEN_LOGS = true;
 var DEBUG_SEED = 2741;
 
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
-var GOO_IN_RANDOM_ROOM = true;
+var GOO_IN_RANDOM_ROOM = false;
 var ALIEN_IN_BEDROOM = false;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
 
-var SCENARIO = false;
+var SCENARIO = 9;
 
 document.addEventListener("keydown", function(e) {
     if (e.code === "Space") {
@@ -90,11 +99,13 @@ var addInformation = function(list, inputInfo) {
 // People 
 var Person = function(name, idx) {
     this.name = name;
+    this.hp = 10;
     this.idx = idx;
     this.queue = [];
     this.markedForRemoval = false;
     this.iShouldReportThis = false;
     this.information = [];
+    this.conscious = true;
     this.addInformation = function(inputInfo) {
         if (findPerson(this) !== findPerson(player)) {
             this.information = addInformation.call(null, this.information, inputInfo);
@@ -129,7 +140,18 @@ var Person = function(name, idx) {
 
 var mixinAI = function(person) {
     var preserve = person.tick;
+    person.goUnconscious = function() {
+        this.queue = [];
+        this.conscious = false;
+        logIfApplicable(this.name + " is unconscious", findPerson(this))
+    }
     person.tick = function() {
+        if (this.hp === 1 && this.conscious === true) {
+            this.goUnconscious();
+            return;
+        }
+        if (!this.conscious) return;
+
         var aliens = _.filter(findPerson(person).items, function(item) {
            return item.type === "Alien"; 
         });
@@ -153,6 +175,9 @@ var mixinAI = function(person) {
 var mixinPlayer = function(player) {
     var preserve = player.tick;
     player.tick = function() {
+        if (this.hp === 1) {
+            console.log("*** GAME OVER, YOU ARE DEAD");
+        }
         _.each(information, function(info) {
             if (info.room === findPerson(player)) {
                 info.markedForRemoval = true;
@@ -170,8 +195,10 @@ var medic = new Person("Medic", 1);
 mixinAI(medic);
 
 var mechanic = new Person("Mechanic", 2);
+mixinAI(mechanic);
 
 var mercenary = new Person("Mercenary", 3);
+mixinAI(mercenary);
 
 var pilot = new Person("Pilot", 4);
 mixinAI(pilot);
@@ -236,6 +263,9 @@ var Goo = function() {
                 }
             }
         }
+        if (this.hp <= 0) {
+            this.markedForRemoval = true;
+        }
     }
 }
 
@@ -249,11 +279,49 @@ var Alien = function() {
     this.markedForRemoval = false;
     this.tick = function() {
         if (this.hp <= 0) {
-            if (findAlien(this) === findPerson(player)) console.log('-> Killed ' + this.name);
+            if (findAlien(this) === findPerson(player)) logIfApplicable('-> Killed ' + this.name, findAlien(this));
             _.each(findAlien(this).crew, function(person) {
                 person.defeatedAlien(this);
             }.bind(this));
             this.markedForRemoval = true;
+        } else {
+            if (findAlien(this).crew.length === 0) return;
+
+            var alienRoom = findAlien(this);
+
+            var amountBrawling = _.filter(findAlien(this).crew, function(person) {
+                return (isBrawling(person, this));
+            }.bind(this));
+
+
+            var eligble = _.filter(findAlien(this).crew, function(person) {
+                return canBeHit(person);
+            });
+
+            if (eligble.length < 1) {
+                logIfApplicable('Alien has noone to hurt', alienRoom);
+                return;
+            }
+
+            if (amountBrawling.length === 0) {
+                var randomidx = Math.floor(Math.random() * eligble.length)
+                var person = eligble[randomidx];
+                person.hp = person.hp - 1;
+                var random = (eligble.length > 1) ? 'randomly ' : ''
+                logIfApplicable('Alien ' + random + 'hurts ' + person.name + ' for 1 HP, now he has ' + person.hp, alienRoom);
+            } else if (amountBrawling.length === 1) {
+                amountBrawling[0].hp = amountBrawling[0].hp - 1;
+                logIfApplicable('Alien hurts lone brawler ' + amountBrawling[0].name + ' for 1 HP, now he has ' + amountBrawling[0].hp, alienRoom);
+            } else {
+                if (Math.random() > 0.8) {
+                    var randomidx = Math.floor(Math.random() * amountBrawling.length)
+                    var person = amountBrawling[randomidx];
+                    person.hp = person.hp - 1;
+                    logIfApplicable('Alien hurts brawler ' + person.name + ' for 1 HP, now he has ' + person.hp, alienRoom);
+                } else {
+                    logIfApplicable('Alien failed to hurt ' + prettyList(_.pluck(amountBrawling, 'name')) + ' because they where many', alienRoom);
+                }
+            }
         }
     }
 }
@@ -398,6 +466,21 @@ var brawl = function(who, what) {
     }
     who.queue.push(action);
     return "Brawling scheduled";
+}
+
+var removeGoo = function(who, what) {
+    var action = {
+        name: "Remove Goo",
+        shortName: "RG",
+        duration: 4,
+        what: what,
+        event: function(duration) {
+            what.hp = what.hp - 1;
+            return true;
+        }.bind(who)
+    }
+    who.queue.push(action);
+    return "Goo removal scheduled";
 }
 
 var searchTheShip = function() {
@@ -584,6 +667,32 @@ var modifyAllDoorsStatus = function(status) {
 }
 
 // Help functions
+var canBeHit = function(who) {
+    return (who.conscious === true && who.hp > 1);
+}
+
+var isBrawling = function(who, what) {
+    return !!(who.conscious && who.queue[0] && who.queue[0].name === "Brawl" && who.queue[0].what === what);
+}
+
+var logIfApplicable = function(msg, room) {
+    if (findPerson(player) === room) {
+        console.log("*** " + msg);
+    } else if (DEBUG_SHOW_HIDDEN_LOGS) {
+        console.log("Hidden: *** " + msg);
+    }
+}
+
+var prettyList = function(list) {
+    var log = "";
+    _.each(list, function(item, idx) {
+        var divider = (list.length-2 === idx) ? " and " : ", ";
+        log += item + divider;
+    });
+    if (list.length > 0) log = log.substr(0, log.length - 2);
+    return log;
+}
+
 var revealHiddenItemsInRoom = function(room) {
     var items = _.filter(room.items, function(item) {
         return (item.hidden === true);
@@ -667,9 +776,11 @@ var printShipStatus = function() {
         var prettyPeople = "";
         if (DEBUG_SHOW_ALL_CREW || findPerson(player) === room) {
             _.each(room.crew, function(person) {
-                var prettyPerson = person.name;
+                var conscious = (!person.conscious) ? "@" : "";
+                var prettyPerson = person.name + conscious;
                 if (person.queue.length > 0) {
-                    prettyPerson += "[" + person.queue[0].shortName + "-" + person.queue[0].duration + "]";
+                    var duration = (person.queue[0].duration > 100) ? "~" : person.queue[0].duration;
+                    prettyPerson += "[" + person.queue[0].shortName + "-" + duration + "]";
                 }
                 prettyPeople += prettyPerson + ", ";
             });
@@ -942,7 +1053,7 @@ if (SCENARIO !== false) {
             escapePod1.crew = [];
             escapePod2.crew = [];
             controlPanel.breachDetected = true;
-            rooms[3].items.push(new Goo()); //kitchen
+            rooms[2].items.push(new Goo()); //kitchen
             investigate(medic);
             investigate(pilot);
             gameTick();
@@ -1055,6 +1166,35 @@ if (SCENARIO !== false) {
             gameTick();
             gameTick();
             //gameTick();
+        break;
+        case 8:
+            bridge.crew = [player, pilot];
+            medbay.crew = [];
+            storageroom.crew = [];
+            kitchen.crew = [];
+            engineroom.crew = [];
+            bedroom.crew = [];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+            var spawningAlien = new Alien();
+            bridge.items.push(spawningAlien);
+            printShipStatus();
+        break;
+        case 9:
+            pilot.hp = 2;
+            bridge.crew = [pilot, mercenary]; //, , mechanic
+            medbay.crew = [player];
+            storageroom.crew = [];
+            kitchen.crew = [];
+            engineroom.crew = [];
+            bedroom.crew = [];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+            var spawningAlien = new Alien();
+            bridge.items.push(spawningAlien);
+            gameTick();
         break;
     }
 } else {
