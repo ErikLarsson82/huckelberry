@@ -42,7 +42,7 @@ var ALIEN_IN_BEDROOM = false;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
 
-var SCENARIO = 11;
+var SCENARIO = 12;
 
 document.addEventListener("keydown", function(e) {
     if (e.code === "Space") {
@@ -103,6 +103,7 @@ var Person = function(name, idx) {
     this.information = [];
     this.conscious = true;
     this.inventory = [];
+    this.firemanCarry = null;
     this.addInformation = function(inputInfo) {
         if (findPerson(this) !== findPerson(player) && this.conscious) {
             this.information = addInformation.call(null, this.information, inputInfo);
@@ -453,6 +454,37 @@ var fixEngine = function(who) {
 }
 
 // People functions
+var firemanCarry = function(who, whom) {
+    var action = {
+        name: "Carry",
+        shortName: "A",
+        duration: 3,
+        whom: whom,
+        event: function(duration) {
+            if (findPerson(whom) !== findPerson(who)) {
+                logIfApplicable('*** ' + who.name + ' cannot fireman carry ' + whom.name + ' due to not being in the same room', findPerson(who));
+                return false;
+            }
+            if (duration === 0) {
+                who.firemanCarry = whom;
+                findPerson(who).crew = _.filter(findPerson(who).crew, function(person) {
+                    return (person !== whom);
+                })
+            }
+            return true;
+        }.bind(who)
+    }
+    who.queue.push(action);
+    return "FiremanCarry scheduled";
+}
+
+var firemanCarryRelease = function(who) {
+    var whom = who.firemanCarry;
+    who.firemanCarry = null;
+    findPerson(who).crew.push(whom);
+    return "Dropping " + whom.name + " on the floor of " + findPerson(who).name;
+}
+
 var wake = function(who, whom) {
     var items = _.filter(whom.inventory, function(item) {
         return (item instanceof FirstAidKit);
@@ -479,6 +511,9 @@ var wake = function(who, whom) {
 }
 
 var brawl = function(who, what) {
+    if (who.firemanCarry) {
+        return "Cannot brawl while carrying " + who.firemanCarry.name;
+    }
     var action = {
         name: "Brawl",
         shortName: "B",
@@ -552,9 +587,9 @@ var move = function(who, where) {
     var action = {
         name: "Move",
         shortName: "M",
-        duration: 4,
+        duration: (who.firemanCarry) ? 6 : 3,
         event: function(duration) {
-            if (duration === 2) {
+            if (duration === 1) {
                 var result = executeMove(who, where);
 
                 if (who !== player) {
@@ -1358,6 +1393,29 @@ if (SCENARIO !== false) {
             gameTick();
             move(player, bedroom);
             gameTick();
+            gameTick();
+            brawl(player, bedroom.items[0]);
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+        break;
+        case 12:
+            mechanic.conscious = false;
+            bridge.crew = [player, mechanic];
+            medbay.crew = [];
+            storageroom.crew = [];
+            kitchen.crew = [];
+            engineroom.crew = [];
+            bedroom.crew = [];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+            firemanCarry(player, mechanic);
             gameTick();
         break;
     }
