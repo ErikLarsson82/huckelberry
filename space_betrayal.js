@@ -305,7 +305,7 @@ shieldroom.connections = [engineroom];
 escapePod1.connections = [kitchen];
 escapePod2.connections = [medbay];
 
-var rooms = [bridge, medbay, storageroom, kitchen, engineroom, bedroom, shieldroom, escapePod1, escapePod2];
+var rooms = [escapePod1, bedroom, kitchen, bridge, engineroom, shieldroom, medbay, storageroom, escapePod2];
 
 var doors = [door1, door2, door3, door4, door5, door6, door7, door8];
 var ship = {
