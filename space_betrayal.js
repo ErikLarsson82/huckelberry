@@ -33,6 +33,7 @@ var DEBUG_SHOW_HIDDEN_ITEMS = false;
 var DEBUG_SHOW_ALL_ITEMS = false;
 var DEBUG_SHOW_ALL_CREW = false;
 var DEBUG_SHOW_HIDDEN_LOGS = false;
+var DEBUG_DISABLE_RANDOM_CREW = true;
 var DEBUG_SEED = 9891;
 
 var BREAK_ENGINE_ON_STARTUP = false;
@@ -169,6 +170,11 @@ var mixinAI = function(person) {
             return;
         }
         if (!this.conscious) return;
+
+        if (this.name === 'Pilot' && findPerson(this) === bridge) {
+            this.information = addInformation(this.information, new Information(ENGINE_STATUS, this, findPerson(this), engine.status));
+            this.information = addInformation(this.information, new Information(HULL_STATUS, this, findPerson(this), controlPanel.breachDetected));
+        }
 
         var aliens = _.filter(findPerson(this).items, function(item) {
            return item.type === "Alien"; 
@@ -395,7 +401,19 @@ var placeCrewRandomly = function() {
     })
 }
 
-placeCrewRandomly();
+if (DEBUG_DISABLE_RANDOM_CREW) {
+    bridge.crew = [pilot];
+    medbay.crew = [player];
+    storageroom.crew = [];
+    kitchen.crew = [];
+    engineroom.crew = [];
+    bedroom.crew = [];
+    shieldroom.crew = [];
+    escapePod1.crew = [];
+    escapePod2.crew = [];
+} else {
+    placeCrewRandomly();
+}
 
 var doors = [door1, door2, door3, door4, door5, door6, door7, door8];
 var ship = {
@@ -1032,7 +1050,9 @@ var printShipStatus = function() {
         return info.type === ENGINE_STATUS;
     });
     if (applicableInfo.length > 0) {
-        console.log('          Engine      : (' + applicableInfo[0].value + ')' + applicableInfo[0].decay);
+        var newChars = (applicableInfo[0].seenByPlayer === false) ? ' %%%%%%% ' : "";
+        applicableInfo[0].seenByPlayer = true;
+        console.log('          Engine      : (' + newChars + applicableInfo[0].value + ')' + applicableInfo[0].decay);
     } else {
         console.log("          Engine      : -");
     }
@@ -1048,7 +1068,9 @@ var printShipStatus = function() {
         return info.type === HULL_STATUS;
     });
     if (applicableInfo.length > 0) {
-        console.log('          Hull breach : (' + applicableInfo[0].value + ')' + applicableInfo[0].decay);
+        var newChars = (applicableInfo[0].seenByPlayer === false) ? ' %%%%%%% ' : "";
+        applicableInfo[0].seenByPlayer = true;
+        console.log('          Hull breach : (' + newChars + applicableInfo[0].value + ')' + applicableInfo[0].decay);
     } else {
         console.log("          Hull breach : -");
     }
