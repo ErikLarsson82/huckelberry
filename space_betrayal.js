@@ -33,7 +33,7 @@ var DEBUG_SHOW_HIDDEN_ITEMS = false;
 var DEBUG_SHOW_ALL_ITEMS = false;
 var DEBUG_SHOW_ALL_CREW = false;
 var DEBUG_SHOW_HIDDEN_LOGS = false;
-var DEBUG_SEED = false;
+var DEBUG_SEED = 9891;
 
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
@@ -71,6 +71,15 @@ document.addEventListener("keydown", function(e) {
         gameTick();
     }
 });
+
+
+// Setup seed
+
+var randomSeed = Math.round(Math.random() * 10000);
+var seed = (DEBUG_SEED) ? DEBUG_SEED : randomSeed;
+console.log("Using seed " + seed);
+Math.seedrandom(seed);
+
 
 // Information
 var Information = function(type, who, where, value) {
@@ -364,13 +373,6 @@ var door6 = new Door(medbay, storageroom);
 var door7 = new Door(kitchen, escapePod1);
 var door8 = new Door(medbay, escapePod2);
 
-medbay.crew = [];
-bridge.crew = [];
-kitchen.crew = [player, mechanic, mercenary];
-bedroom.crew = [medic];
-storageroom.crew = [pilot];
-engineroom.crew = [];
-
 bridge.items.push(controlPanel);
 engineroom.items.push(engine);
 
@@ -385,6 +387,15 @@ escapePod1.connections = [kitchen];
 escapePod2.connections = [medbay];
 
 var rooms = [escapePod1, bedroom, kitchen, bridge, engineroom, shieldroom, medbay, storageroom, escapePod2];
+
+var placeCrewRandomly = function() {
+    _.each(crew, function(person) {
+        var index = Math.floor(Math.random() * rooms.length);
+        rooms[index].crew.push(person);
+    })
+}
+
+placeCrewRandomly();
 
 var doors = [door1, door2, door3, door4, door5, door6, door7, door8];
 var ship = {
@@ -539,6 +550,7 @@ var brawl = function(who, what) {
 }
 
 var removeGoo = function(who, what) {
+    if (!what) return "What?"
     var action = {
         name: "Remove Goo",
         shortName: "RG",
@@ -976,8 +988,14 @@ var printShipStatus = function() {
         var roomEmpty = _.filter(information, function(info) {
             return info.type === ROOM_EMPTY_STATUS && info.room === room;
         });
-        var roomClearOutput = (roomClear[0]) ? '(' + roomClear[0].person.name + "[C]" + roomClear[0].decay + ") " : "";
-        var roomEmptyOutput = (roomEmpty[0]) ? '(' + roomEmpty[0].person.name + "[E]" + roomEmpty[0].decay + ") " : "";
+        var roomClearOutput = "";
+        _.each(roomClear, function() {
+            roomClearOutput += '(' + roomClear[0].person.name + "[C]" + roomClear[0].decay + "), ";  
+        })
+        var roomEmptyOutput = "";
+        _.each(roomEmpty, function() {
+            roomClearOutput += '(' + roomEmpty[0].person.name + "[E]" + roomEmpty[0].decay + "), ";
+        })
         console.log("          " + room.name + ": " + roomClearOutput + roomEmptyOutput + prettyPeople);
         var items = _.filter(room.items, function(item) {
             if (DEBUG_SHOW_HIDDEN_ITEMS && item.hidden === true) {
@@ -1113,13 +1131,6 @@ var gameTick = function() {
 
     printShipStatus();
 }
-
-// Setup seed
-
-var randomSeed = Math.round(Math.random() * 10000);
-var seed = (DEBUG_SEED) ? DEBUG_SEED : randomSeed;
-console.log("Using seed " + seed);
-Math.seedrandom(seed);
 
 // Temp start conditions
 if (BREAK_ENGINE_ON_STARTUP) {
