@@ -37,16 +37,16 @@ var DEBUG_SHOW_HIDDEN_ITEMS = false;
 var DEBUG_SHOW_ALL_ITEMS = false;
 var DEBUG_SHOW_ALL_CREW = false;
 var DEBUG_SHOW_HIDDEN_LOGS = false;
-var DEBUG_SEED = 9414;
+var DEBUG_SEED = false;
 
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
-var GOO_IN_RANDOM_ROOM = !false;
+var GOO_IN_RANDOM_ROOM = false;
 var ALIEN_IN_BEDROOM = false;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
 
-var SCENARIO = 10;
+var SCENARIO = 11;
 
 document.addEventListener("keydown", function(e) {
     if (e.code === "Space") {
@@ -106,8 +106,9 @@ var Person = function(name, idx) {
     this.iShouldReportThis = false;
     this.information = [];
     this.conscious = true;
+    this.inventory = [];
     this.addInformation = function(inputInfo) {
-        if (findPerson(this) !== findPerson(player)) {
+        if (findPerson(this) !== findPerson(player) && this.conscious) {
             this.information = addInformation.call(null, this.information, inputInfo);
         }
     };
@@ -187,12 +188,15 @@ var mixinPlayer = function(player) {
     }
 }
 
+var FirstAidKit = function() {}
 
 var player = new Person("You", 0);
 mixinPlayer(player);
+player.inventory.push(new FirstAidKit());
 
 var medic = new Person("Medic", 1);
 mixinAI(medic);
+medic.inventory.push(new FirstAidKit());
 
 var mechanic = new Person("Mechanic", 2);
 mixinAI(mechanic);
@@ -453,6 +457,31 @@ var fixEngine = function(who) {
 }
 
 // People functions
+var wake = function(who, whom) {
+    var items = _.filter(whom.inventory, function(item) {
+        return (item instanceof FirstAidKit);
+    });
+    if (items === 0) return who.name + " doesnt have FirstAidKit";
+
+    var action = {
+        name: "Wake",
+        shortName: "W",
+        duration: 2,
+        whom: whom,
+        event: function(duration) {
+            if (duration === 0) {
+                if (findPerson(whom) === findPerson(who)) {
+                    whom.hp = whom.hp + 1;
+                    whom.conscious = true;
+                }
+            }
+            return true;
+        }.bind(who)
+    }
+    who.queue.push(action);
+    return "Waking scheduled";
+}
+
 var brawl = function(who, what) {
     var action = {
         name: "Brawl",
@@ -833,7 +862,7 @@ var isLegalMove = function(who, where) {
 
 var transferInformationIfApplicable = function() {
     _.each(crew, function(person) {
-        if (person !== player && (findPerson(person) === findPerson(player))) {
+        if (person !== player && (findPerson(person) === findPerson(player)) && person.conscious) {
             _.each(person.information, function(info) {
                 information = addInformation(information, info);                    
             });
@@ -865,9 +894,6 @@ var executeMove = function(who, where) {
     })
 
     where.crew.push(who);
-
-    transferInformationIfApplicable();
-
     return true;
 }
 
@@ -991,6 +1017,11 @@ var gameTick = function() {
     //Tick all crew
     _.each(ship.crew, function(person) {
         person.tick();
+    });
+
+    //Transfer info, someone might have woken up or entered a room
+    _.each(ship.crew, function(person) {
+        transferInformationIfApplicable(person);
     });
 
     //Tick all items in rooms
@@ -1312,6 +1343,26 @@ if (SCENARIO !== false) {
             escapePod1.crew = [];
             escapePod2.crew = [];
             printShipStatus();
+        break;
+        case 11:
+            mechanic.hp = 2;
+            bridge.crew = [medic]; //, , 
+            medbay.crew = [];
+            storageroom.crew = [];
+            kitchen.crew = [player];
+            engineroom.crew = [];
+            bedroom.crew = [mechanic];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+            var spawningAlien = new Alien();
+            bedroom.items.push(spawningAlien);
+            //mechanic.conscious = false;
+            gameTick();
+            gameTick();
+            move(player, bedroom);
+            gameTick();
+            gameTick();
         break;
     }
 } else {
