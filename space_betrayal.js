@@ -1,14 +1,10 @@
 //TODO
 // - Order via telecom om uppe
 // - Starta random platser
-// - Move chaincommand
 // - searchrepeat
 // - goo + alien kan spawna
 // - seal goo breach med verktyg
 // - syrenivåer
-// - få mindre HP av brawl med aliens
-// - kan bli medvetslös
-// - medvetslös -> vaken av luktsalt
 // - Dela upp filen, requireJS
 
 // Sub tasks information
