@@ -1,8 +1,12 @@
 //TODO
 // - Order via telecom om uppe
+// - AI hanterar om telecom är nere
+// - Event Nebula; har sönder elektronik
+// - asteroid hit, breach
 // - searchrepeat
-// - seal goo breach med verktyg
-// - syrenivåer
+// - reactivate warp drive
+// - rensa gammal info vid warp drive
+
 // - Dela upp filen, requireJS
 
 // Sub tasks information
@@ -27,17 +31,18 @@ var GOO_REMOVED_STATUS = "Goo removed";
 var ROOM_CLEAR_STATUS = "Room clear";
 var ROOM_EMPTY_STATUS = "Room empty";
 
-var SCENARIO = 15;
+var SCENARIO = false;
 
-var DEBUG_SEED = false;
+var DEBUG_SEED = 8461;
 
 var DEBUG_SHOW_TRUE_VALUES = false;
-var DEBUG_SHOW_HIDDEN_ITEMS = !false;
-var DEBUG_SHOW_ALL_ITEMS = !false;
-var DEBUG_SHOW_ALL_CREW = !false;
+var DEBUG_SHOW_HIDDEN_ITEMS = false;
+var DEBUG_SHOW_ALL_ITEMS = false;
+var DEBUG_SHOW_ALL_CREW = false;
 var DEBUG_SHOW_HIDDEN_LOGS = false;
 var DEBUG_DISABLE_RANDOM_CREW = false;
-var DEBUG_DISABLE_MISSION = !false;
+var DEBUG_DISABLE_MISSION = false;
+var DEBUG_SHOW_EVENT_RESULT = false;
 
 var BREAK_ENGINE_ON_STARTUP = false;
 var GOO_IN_STORAGEROOM = false;
@@ -301,6 +306,7 @@ var Goo = function() {
                 person.iJustSawGooRemoved(this);
             });
             this.markedForRemoval = true;
+            controlPanel.breachDetected = false;
         }
     }
 }
@@ -404,31 +410,46 @@ escapePod2.connections = [medbay];
 var rooms = [escapePod1, bedroom, kitchen, bridge, engineroom, shieldroom, medbay, storageroom, escapePod2];
 
 var placeCrewRandomly = function() {
+    _.each(rooms, function(room) {
+        room.crew = [];
+    });
     _.each(crew, function(person) {
         var index = Math.floor(Math.random() * rooms.length);
         rooms[index].crew.push(person);
     })
 }
 
-if (DEBUG_DISABLE_RANDOM_CREW) {
-    bridge.crew = [pilot];
-    medbay.crew = [player];
-    storageroom.crew = [];
-    kitchen.crew = [];
-    engineroom.crew = [];
-    bedroom.crew = [];
-    shieldroom.crew = [];
-    escapePod1.crew = [];
-    escapePod2.crew = [];
-} else {
-    placeCrewRandomly();
+var warp = function() {
+    this.isWarp = true;
+    this.downtime = 3;
+    this.eventDuration = 0;
+    this.points = this.points - this.eventDuration;
+    console.log('Ship goes into warp drive, you have ' + this.points + ' points.');
 }
 
 var doors = [door1, door2, door3, door4, door5, door6, door7, door8];
 var ship = {
     rooms: rooms,
     doors: doors,
-    crew: crew
+    crew: crew,
+    isWarp: false,
+    eventDuration: 0,
+    points: 100,
+    downtime: 3,
+    tick: function() {
+        if (this.isWarp) {
+            this.downtime -= 1;
+            console.log('Ship is in warp drive .... playing animation.');
+
+            if (this.downtime <= 0) {
+                ship.isWarp = false;
+                startEvent();
+            }
+        } else {
+            this.eventDuration += 1;
+        }
+    },
+    engageWarp: warp
 }
 
 // Item functions
@@ -502,6 +523,26 @@ var fixEngine = function(who) {
 }
 
 // People functions
+var engageWarp = function(who) {
+    var action = {
+        name: "Engage warp",
+        shortName: "W",
+        duration: 4,
+        event: function(duration) {
+            if (findPerson(who) !== findItem(controlPanel)) {
+                logIfApplicable('*** ' + who.name + ' cannot start warp due to not being in the same room', findPerson(who));
+                return false;
+            }
+            if (duration === 0) {
+                ship.engageWarp();
+            }
+            return true;
+        }.bind(who)
+    }
+    who.queue.push(action);
+    return "Engage Warp scheduled";
+}
+
 var firemanCarry = function(who, whom) {
     var action = {
         name: "Carry",
@@ -1119,6 +1160,11 @@ var hideAll = function() {
 var gameTick = function() {
     console.log("");
     console.log("");
+
+    //Tick ship
+    ship.tick();
+    if (ship.isWarp) return;
+    
     console.log("New turn:");
 
     //Tick all crew
@@ -1175,9 +1221,32 @@ var gameTick = function() {
     printShipStatus();
 }
 
+var startEvent = function() {
 
-if (!DEBUG_DISABLE_MISSION) {
+    if (DEBUG_DISABLE_MISSION) {
+        return;
+    }
+
+    if (DEBUG_DISABLE_RANDOM_CREW) {
+        bridge.crew = [pilot];
+        medbay.crew = [player];
+        storageroom.crew = [];
+        kitchen.crew = [];
+        engineroom.crew = [];
+        bedroom.crew = [];
+        shieldroom.crew = [];
+        escapePod1.crew = [];
+        escapePod2.crew = [];
+    } else {
+        placeCrewRandomly();
+    }
+
     var result = Math.random();
+
+    if (DEBUG_SHOW_EVENT_RESULT) {
+        console.log('Event result = ' + result)
+    }
+
     var stuff = [
         function() {
             var crewExceptYou = _.filter(crew, function(person) {
@@ -1193,7 +1262,7 @@ if (!DEBUG_DISABLE_MISSION) {
                 return (person !== finder);
             })
             findPerson(target).crew.push(finder);
-            console.log(finder.name + " finds "+target.name+" unconsious");
+            console.log(finder.name + " finds " + target.name + " unconsious");
         },
         function() {
             engine.status = BROKEN;
@@ -1228,11 +1297,11 @@ if (!DEBUG_DISABLE_MISSION) {
         },
     ];
 
-    if (result < 0.2) {
+    if (result < 0.3) {
         stuff[0]();
     } else if (result < 0.4) {
         stuff[1]();
-    } else if (result < 0.6) {
+    } else if (result < 0.7) {
         stuff[2]();
     } else if (result < 0.9) {
         stuff[3]();
@@ -1240,7 +1309,6 @@ if (!DEBUG_DISABLE_MISSION) {
         stuff[4]();
     }
 }
-
 
 // Temp start conditions
 if (BREAK_ENGINE_ON_STARTUP) {
@@ -1599,9 +1667,26 @@ if (SCENARIO !== false) {
             gameTick();
 
         break;
+        case 16:
+            bridge.crew = [player, pilot];
+            medbay.crew = [];
+            storageroom.crew = [];
+            kitchen.crew = [];
+            engineroom.crew = [];
+            bedroom.crew = [];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+            engageWarp(pilot);
+            gameTick();
+            gameTick();
+            gameTick();
+            gameTick();
+        break;
     }
 } else {
     // Start game
+    startEvent();
     printShipStatus();
 }
 
