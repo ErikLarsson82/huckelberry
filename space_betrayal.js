@@ -13,7 +13,8 @@
 // - Hantera conflicting info ??
 // - Investigation ska rapportera aliens också, men inte om hen brawlar
 
-var TICK_DURATION = 2000;
+var INTERVAL_DURATION = 1000/60;
+var TICK_DURATION = 120;
 var HALTED = true;
 
 var OPERATIONAL = "Operational";
@@ -50,6 +51,9 @@ var GOO_IN_RANDOM_ROOM = false;
 var ALIEN_IN_BEDROOM = false;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
+
+var canvas = document.getElementById('canvas');
+var context = canvas.getContext("2d");
 
 
 document.addEventListener("keydown", function(e) {
@@ -232,21 +236,22 @@ var medic = new Person("Medic", 1);
 mixinAI(medic);
 medic.inventory.push(new FirstAidKit());
 
-var mechanic = new Person("Mechanic", 2);
-mixinAI(mechanic);
+var engineer = new Person("Engineer", 2);
+mixinAI(engineer);
 
-var mercenary = new Person("Mercenary", 3);
-mixinAI(mercenary);
+var warrior = new Person("Warrior", 3);
+mixinAI(warrior);
 
 var pilot = new Person("Pilot", 4);
 mixinAI(pilot);
 
 // Ship
-var Room = function(name) {
+var Room = function(name, dimensions) {
     this.name = name;
     this.connections = [];
     this.crew = [];
     this.items = [];
+    this.dimensions = dimensions;
 }
 
 var Engine = function() {
@@ -367,17 +372,17 @@ var Alien = function() {
     }
 }
 
-var bridge = new Room("Bridge      ");
-var medbay = new Room("Medbay      ");
-var storageroom = new Room("Storageroom ");
-var kitchen = new Room("Kitchen     ");
-var engineroom = new Room("Engineroom  ");
-var bedroom = new Room("Bedroom     ");
-var shieldroom = new Room("Shieldroom  ");
-var escapePod1 = new Room("Escape pod 1");
-var escapePod2 = new Room("Escape pod 2");
+var bridge = new Room("Bridge      ", [300, 300, 200, 100]);
+var medbay = new Room("Medbay      ", [500, 300, 100, 80]);
+var storageroom = new Room("Storageroom ", [500, 380, 100, 80]);
+var kitchen = new Room("Kitchen     ", [200, 300, 100, 80]);
+var engineroom = new Room("Engineroom  ", [320, 230, 80, 70]);
+var bedroom = new Room("Bedroom     ", [200, 380, 100, 80]);
+var shieldroom = new Room("Shieldroom  ", [400, 230, 80, 70]);
+var escapePod1 = new Room("Escape pod 1", [220, 240, 60, 60]);
+var escapePod2 = new Room("Escape pod 2", [520, 240, 60, 60]);
 
-var crew = [player, medic, pilot, mechanic, mercenary];
+var crew = [player, medic, pilot, engineer, warrior];
 
 var information = [];
 
@@ -1338,11 +1343,48 @@ if (TWO_ALIENS_IN_KITCHEN) {
     kitchen.items.push(spawningAlien);
 }
 
+var testImg = new Image();
+testImg.src = "test.png";
+var linkImg = new Image();
+linkImg.src = "link.png";
+var render = function() {
+    context.fillStyle = "gray";
+    context.fillRect(0,0, 1024, 768);
+    context.font = "12px Arial";
 
+    context.drawImage(testImg, 0, 0);
+    
+    _.chain(rooms)
+        .filter(function(room) {
+            return (room.dimensions);
+        })
+        .each(function(room) {
+            //context.rect.apply(context, room.dimensions);
+            //context.stroke();
+
+            _.each(room.crew, function(person, idx) {
+                var x = room.dimensions[0] + 5 + (30 * idx);
+                var y = room.dimensions[1] + 10;
+                //context.rect(x, y,10,10);
+                //context.stroke();
+                context.drawImage(linkImg, x, y);
+                context.fillStyle = "black";
+                context.fillText(person.name.substr(0, 3),x,y);
+            })
+        });
+
+}
+
+var counter = 0;
 setInterval(function() {
+    render();
     if (HALTED) return;
-    gameTick();
-}, TICK_DURATION);
+    counter++;
+    if (counter > TICK_DURATION) {
+        gameTick();
+        counter = 0;
+    }
+}, INTERVAL_DURATION);
 
 
 if (SCENARIO !== false) {
@@ -1553,7 +1595,7 @@ if (SCENARIO !== false) {
         break;
         case 9:
             pilot.hp = 2;
-            bridge.crew = [pilot, mercenary]; //, , mechanic
+            bridge.crew = [pilot, warrior]; //, , engineer
             medbay.crew = [player];
             storageroom.crew = [];
             kitchen.crew = [];
@@ -1567,7 +1609,7 @@ if (SCENARIO !== false) {
             gameTick();
         break;
         case 10:
-            bridge.crew = [medic]; //, , mechanic
+            bridge.crew = [medic]; //, , engineer
             medbay.crew = [];
             storageroom.crew = [player];
             kitchen.crew = [];
@@ -1579,19 +1621,19 @@ if (SCENARIO !== false) {
             printShipStatus();
         break;
         case 11:
-            mechanic.hp = 2;
+            engineer.hp = 2;
             bridge.crew = [medic]; //, , 
             medbay.crew = [];
             storageroom.crew = [];
             kitchen.crew = [player];
             engineroom.crew = [];
-            bedroom.crew = [mechanic];
+            bedroom.crew = [engineer];
             shieldroom.crew = [];
             escapePod1.crew = [];
             escapePod2.crew = [];
             var spawningAlien = new Alien();
             bedroom.items.push(spawningAlien);
-            //mechanic.conscious = false;
+            //engineer.conscious = false;
             gameTick();
             gameTick();
             move(player, bedroom);
@@ -1608,8 +1650,8 @@ if (SCENARIO !== false) {
             gameTick();
         break;
         case 12:
-            mechanic.conscious = false;
-            bridge.crew = [player, mechanic];
+            engineer.conscious = false;
+            bridge.crew = [player, engineer];
             medbay.crew = [];
             storageroom.crew = [];
             kitchen.crew = [];
@@ -1618,7 +1660,7 @@ if (SCENARIO !== false) {
             shieldroom.crew = [];
             escapePod1.crew = [];
             escapePod2.crew = [];
-            firemanCarry(player, mechanic);
+            firemanCarry(player, engineer);
             gameTick();
             gameTick();
             gameTick();
@@ -1628,7 +1670,7 @@ if (SCENARIO !== false) {
         break;
         case 13:
             bridge.crew = [player];
-            medbay.crew = [mechanic, medic];
+            medbay.crew = [engineer, medic];
             storageroom.crew = [];
             kitchen.crew = [];
             engineroom.crew = [];
@@ -1636,7 +1678,7 @@ if (SCENARIO !== false) {
             shieldroom.crew = [];
             escapePod1.crew = [];
             escapePod2.crew = [];
-            report(mechanic);
+            report(engineer);
             report(medic);
             gameTick();
             gameTick();
@@ -1646,7 +1688,7 @@ if (SCENARIO !== false) {
             bridge.crew = [player];
             medbay.crew = [];
             storageroom.crew = [];
-            kitchen.crew = [mechanic];
+            kitchen.crew = [engineer];
             engineroom.crew = [];
             bedroom.crew = [];
             shieldroom.crew = [];
@@ -1654,14 +1696,14 @@ if (SCENARIO !== false) {
             escapePod2.crew = [];
             controlPanel.breachDetected = true;
             kitchen.items.push(new Goo());
-            investigate(mechanic);
+            investigate(engineer);
             gameTick();
             gameTick();
             gameTick();
             gameTick();
             gameTick();
             gameTick();
-            removeGoo(mechanic);
+            removeGoo(engineer);
             gameTick();
             gameTick();
             gameTick();
