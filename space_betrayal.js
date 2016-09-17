@@ -170,6 +170,35 @@ var addInformation = function(list, inputInfo) {
     return list;
 }
 
+var GameObject = function(tick, visualTick, draw) {
+    this.tick = tick || function() {};
+    this.visualTick = visualTick || function() {};
+    this.draw = draw || function() {};
+}
+
+var DamageTick = function(x, y, amount) {
+    var ticker = new GameObject();
+    ticker.time = 180;
+    ticker.x = x;
+    ticker.y = y;
+    ticker.markedForRemoval = false;
+    ticker.visualTick = function() {
+        this.time -= 1;
+        if (this.time < 0) {
+            this.markedForRemoval = true;
+        }
+    }
+    ticker.draw = function() {
+        context.font = "bold 12px Arial";
+        context.fillStyle = "black";
+        context.fillText(amount, this.x, this.y - 1 - (180 - this.time) / 5);
+
+        context.fillStyle = "red";
+        context.fillText(amount, this.x -1, this.y - 1 - (180 - this.time) / 5);
+    }
+    return ticker;
+}
+
 // People
 var Person = function(name, idx) {
     this.dimensions = [0, 0, 33, 33];
@@ -191,8 +220,10 @@ var Person = function(name, idx) {
         if (what instanceof Alien) {
             if (this.firemanCarry) {
                 this.hp = this.hp - 3;
+                gameObjects.push(new DamageTick(this.dimensions[0], this.dimensions[1], -3));
                 return 3;
             } else {
+                gameObjects.push(new DamageTick(this.dimensions[0], this.dimensions[1], -1));
                 this.hp = this.hp - 1;
                 return 1;
             }
@@ -384,18 +415,23 @@ var Alien = function() {
     this.dimensions = [0, 0, 33, 33];
     this.name = "Alien" + alienCounter;
     alienCounter++;
-    this.hp = 6;
+    this.hp = 1200;
     this.hidden = false;
     this.type = ALIEN_STATUS;
     this.markedForRemoval = false;
+    this.action = null,
     this.tick = function() {
         if (this.hp <= 0) {
-            if (findItem(this) === findPerson(player)) logIfApplicable('-> Killed ' + this.name, findItem(this));
-            _.each(findItem(this).crew, function(person) {
+            //if (findItem(this) === findPerson(player)) logIfApplicable('-> Killed ' + this.name, findItem(this));
+            /*_.each(findItem(this).crew, function(person) {
                 person.defeatedAlien(this);
-            }.bind(this));
+            }.bind(this));*/
             this.markedForRemoval = true;
         } else {
+            if (this.action) {
+                this.action.event(this);
+                return;
+            }
             if (findItem(this).crew.length === 0) return;
 
             var alienRoom = findItem(this);
@@ -410,27 +446,40 @@ var Alien = function() {
             });
 
             if (eligble.length < 1) {
-                logIfApplicable('Alien has noone to hurt', alienRoom);
+                //logIfApplicable('Alien has noone to hurt', alienRoom);
                 return;
+            }
+            this.action = {
+                target: null,
+                idx: 180,
+                event: function(parent) {
+                    if (this.idx < 0) {
+                        this.target && this.target.hurt(parent);
+                        this.idx = 180
+                    } else {
+                        this.idx -= 1;
+                    }
+                }
             }
             if (amountBrawling.length === 0) {
                 var randomidx = Math.floor(Math.random() * eligble.length)
-                var person = eligble[randomidx];
-                var dmg = person.hurt(this);
-                var random = (eligble.length > 1) ? 'randomly ' : ''
-                logIfApplicable('Alien ' + random + 'hurts ' + person.name + ' for ' + dmg + ' HP, now he has ' + person.hp, alienRoom);
+                this.action.target = eligble[randomidx];
+                //var dmg = person.hurt(this);
+                //var random = (eligble.length > 1) ? 'randomly ' : ''
+                //logIfApplicable('Alien ' + random + 'hurts ' + person.name + ' for ' + dmg + ' HP, now he has ' + person.hp, alienRoom);
             } else if (amountBrawling.length === 1) {
-                var dmg = amountBrawling[0].hurt(this);
-                logIfApplicable('Alien hurts lone brawler ' + amountBrawling[0].name + ' for '+dmg+' HP, now he has ' + amountBrawling[0].hp, alienRoom);
+                this.action.target = amountBrawling[0];
+                //var dmg = amountBrawling[0].hurt(this);
+                //logIfApplicable('Alien hurts lone brawler ' + amountBrawling[0].name + ' for '+dmg+' HP, now he has ' + amountBrawling[0].hp, alienRoom);
             } else {
-                if (Math.random() > 0.8) {
-                    var randomidx = Math.floor(Math.random() * amountBrawling.length)
-                    var person = amountBrawling[randomidx];
-                    var dmg = person.hurt(this);
-                    logIfApplicable('Alien hurts brawler ' + person.name + ' for '+dmg+' HP, now he has ' + person.hp, alienRoom);
-                } else {
+                //if (Math.random() > 0.8) {
+                var randomidx = Math.floor(Math.random() * amountBrawling.length)
+                this.action.target = amountBrawling[randomidx];
+                    //var dmg = person.hurt(this);
+                    //logIfApplicable('Alien hurts brawler ' + person.name + ' for '+dmg+' HP, now he has ' + person.hp, alienRoom);
+                /*} else {
                     logIfApplicable('Alien failed to hurt ' + prettyList(_.pluck(amountBrawling, 'name')) + ' because they where many', alienRoom);
-                }
+                }*/
             }
         }
     }
@@ -441,6 +490,8 @@ var timesTwo = function(array) {
         return item * 2
     })
 }
+
+var gameObjects = [];
 
 var bridge = new Room("Bridge      ", timesTwo([148, 114, 215, 96]));
 var medbay = new Room("Medbay      ", timesTwo([368, 80, 112, 96]));
@@ -682,9 +733,16 @@ var brawl = function(who, what) {
         name: "Brawl",
         shortName: "B",
         duration: 999,
+        delay: 60,
         what: what,
         event: function(duration) {
-            what.hp = what.hp - 1;
+            if (action.delay < 0) {
+                what.hp = what.hp - 1;
+                gameObjects.push(new DamageTick(what.dimensions[0], what.dimensions[1], -1));
+                action.delay = 60;
+            } else {
+                action.delay -= 1;
+            }
             return true;
         }.bind(who)
     }
@@ -1008,7 +1066,8 @@ var canBeHit = function(who) {
 }
 
 var isBrawling = function(who, what) {
-    return !!(who.conscious && who.queue[0] && who.queue[0].name === "Brawl" && who.queue[0].what === what);
+    var specificTargetOrTrue = what ? (who.queue[0] && who.queue[0].what === what) : true;
+    return !!(who.conscious && who.queue[0] && who.queue[0].name === "Brawl" && specificTargetOrTrue);
 }
 
 var logIfApplicable = function(msg, room) {
@@ -1237,9 +1296,21 @@ var visualTick = function() {
     _.each(rooms, function(room) {
         room.visualTick();
     });
+
+    _.each(gameObjects, function(object) {
+        object.visualTick();
+    });
+
+    gameObjects = _.filter(gameObjects, function(object) {
+        return !object.markedForRemoval;
+    });
 }
 
 var gameTick = function() {
+
+    _.each(gameObjects, function(object) {
+        object.tick();
+    });
     
     //Tick ship
     ship.tick();
@@ -1418,6 +1489,10 @@ var testImg = new Image();
 testImg.src = "test.png";
 var linkImg = new Image();
 linkImg.src = "link.png";
+var linkBrawlImg = new Image();
+linkBrawlImg.src = "link_brawl.png";
+var linkUnconsiousImg = new Image();
+linkUnconsiousImg.src = "link_unconsious.png";
 var alienImg = new Image();
 alienImg.src = "alien.png";
 
@@ -1459,6 +1534,13 @@ var render = function() {
                 if (livingThing instanceof Alien) {
                     img = alienImg;
                     name = "Alien";
+                } else {
+                    if (livingThing.conscious) {
+                        img = linkImg;
+                        if (isBrawling(livingThing)) img = linkBrawlImg;
+                    } else {
+                        img = linkUnconsiousImg;
+                    }
                 }
                 context.drawImage(img, livingThing.dimensions[0], livingThing.dimensions[1]);
                 context.fillText(name, livingThing.dimensions[0], livingThing.dimensions[1]);
@@ -1471,11 +1553,24 @@ var render = function() {
             })
         });
 
+    if (mousePressedPerson) {
+        context.fillStyle = "black";
+        context.font = "12px Arial";
+        context.fillText("Queue:", 80, 540);
+        _.each(mousePressedPerson.queue, function(item, idx) {
+            context.fillText(item.name, 80 + (idx * 120), 560);
+        })
+    }
+
     if (HALTED) {
         context.fillStyle = "red";
         context.font = "30px Arial";
         context.fillText("PAUSED", 430, 30);
     }
+
+    _.each(gameObjects, function(object) {
+        object.draw();
+    });
 }
 
 setInterval(function() {
@@ -1826,10 +1921,10 @@ if (SCENARIO !== false) {
             gameTick();
         break;
         case 17:
-            bridge.crew = [player, pilot];
+            bridge.crew = [pilot];
             var spawningAlien = new Alien();
             bridge.items.push(spawningAlien);
-            medbay.crew = [];
+            medbay.crew = [player];
             storageroom.crew = [];
             kitchen.crew = [];
             engineroom.crew = [];
