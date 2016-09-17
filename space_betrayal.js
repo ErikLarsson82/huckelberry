@@ -32,9 +32,9 @@ var GOO_REMOVED_STATUS = "Goo removed";
 var ROOM_CLEAR_STATUS = "Room clear";
 var ROOM_EMPTY_STATUS = "Room empty";
 
-var SCENARIO = false;
+var SCENARIO = 17;
 
-var DEBUG_SEED = 8461;
+var DEBUG_SEED = false;
 
 var DEBUG_SHOW_TRUE_VALUES = false;
 var DEBUG_SHOW_HIDDEN_ITEMS = false;
@@ -55,6 +55,62 @@ var LOCK_ALL_DOORS = false;
 var canvas = document.getElementById('canvas');
 var context = canvas.getContext("2d");
 
+canvas.oncontextmenu = function() {
+   return false; 
+}
+
+var mousePressedPerson = null;
+
+var detectHits = function(list, e) {
+    return _.filter(list, function(item) {
+        return (e.x > item.dimensions[0] &&
+            e.x < item.dimensions[0] + item.dimensions[2] &&
+            e.y > item.dimensions[1] &&
+            e.y < item.dimensions[1] + item.dimensions[3]);
+    });
+}
+
+document.addEventListener("mousemove", function(e) {
+    if (mousePressedPerson) {
+        var hits = detectHits(ship.rooms, e);
+        _.each(ship.rooms, function(room) {
+            room.hover = false;
+        });   
+        if (hits[0] && hits[0] !== findPerson(mousePressedPerson)) {
+            hits[0].hover = true;
+        }
+    } else {
+        _.each(ship.rooms, function(room) {
+            room.hover = false;
+        });
+    }
+});
+
+document.addEventListener("mousedown", function(e) {
+    if (e.button === 0) {
+        var hits = detectHits(crew, e);
+        
+        if (hits.length > 0) {
+            mousePressedPerson = hits[0];
+        } else {
+            mousePressedPerson = null;
+        }
+    } else if (e.button === 2) {
+        if (mousePressedPerson) {
+            var hits = detectHits(ship.rooms, e);
+
+            if (hits[0]) {
+                hits[0].activated = 60;
+                moveRoute(mousePressedPerson, hits[0]);
+            }
+        }
+    }
+});
+
+document.addEventListener("mouseup", function(e) {
+    //console.log(e);
+});
+
 
 document.addEventListener("keydown", function(e) {
     if (e.code === "Space") {
@@ -64,6 +120,7 @@ document.addEventListener("keydown", function(e) {
         } else {
             HALTED = true;
             console.log("Simulation paused!");
+            printShipStatus();
         }   
     } else if (e.keyCode === 83) {
         if (!HALTED) {
@@ -113,8 +170,9 @@ var addInformation = function(list, inputInfo) {
     return list;
 }
 
-// People 
+// People
 var Person = function(name, idx) {
+    this.dimensions = [0, 0, 33, 33];
     this.name = name;
     this.hp = 10;
     this.idx = idx;
@@ -252,6 +310,11 @@ var Room = function(name, dimensions) {
     this.crew = [];
     this.items = [];
     this.dimensions = dimensions;
+    this.hover = false;
+    this.activated = 0;
+    this.visualTick = function() {
+        if (this.activated > 0) this.activated -= 1;
+    }
 }
 
 var Engine = function() {
@@ -318,6 +381,7 @@ var Goo = function() {
 
 var alienCounter = 0;
 var Alien = function() {
+    this.dimensions = [0, 0, 33, 33];
     this.name = "Alien" + alienCounter;
     alienCounter++;
     this.hp = 6;
@@ -372,15 +436,21 @@ var Alien = function() {
     }
 }
 
-var bridge = new Room("Bridge      ", [300, 300, 200, 100]);
-var medbay = new Room("Medbay      ", [500, 300, 100, 80]);
-var storageroom = new Room("Storageroom ", [500, 380, 100, 80]);
-var kitchen = new Room("Kitchen     ", [200, 300, 100, 80]);
-var engineroom = new Room("Engineroom  ", [320, 230, 80, 70]);
-var bedroom = new Room("Bedroom     ", [200, 380, 100, 80]);
-var shieldroom = new Room("Shieldroom  ", [400, 230, 80, 70]);
-var escapePod1 = new Room("Escape pod 1", [220, 240, 60, 60]);
-var escapePod2 = new Room("Escape pod 2", [520, 240, 60, 60]);
+var timesTwo = function(array) {
+    return _.map(array, function(item) {
+        return item * 2
+    })
+}
+
+var bridge = new Room("Bridge      ", timesTwo([148, 114, 215, 96]));
+var medbay = new Room("Medbay      ", timesTwo([368, 80, 112, 96]));
+var storageroom = new Room("Storageroom ", timesTwo([384, 181, 80, 73]));
+var kitchen = new Room("Kitchen     ", timesTwo([32, 80, 112, 90]));
+var engineroom = new Room("Engineroom  ", timesTwo([167, 37, 80, 73]));
+var bedroom = new Room("Bedroom     ", timesTwo([48, 174, 80, 75]));
+var shieldroom = new Room("Shieldroom  ", timesTwo([251, 37, 80, 73]));
+var escapePod1 = new Room("Escape pod 1", timesTwo([66, 33, 43, 43]));
+var escapePod2 = new Room("Escape pod 2", timesTwo([403, 34, 43, 43]));
 
 var crew = [player, medic, pilot, engineer, warrior];
 
@@ -838,6 +908,7 @@ var findDoor = function(from, to) {
     return (door.length === 1) ? door[0] : alert("Door broken");
 }
 
+// Returns a room
 var findPerson = function(who) {
     var room = _.filter(rooms, function(room) {
         var list = _.filter(room.crew, function(person) {
@@ -1162,16 +1233,18 @@ var hideAll = function() {
     return "Resetting DEBUG to all false"
 }
 
-var gameTick = function() {
-    console.log("");
-    console.log("");
+var visualTick = function() {
+    _.each(rooms, function(room) {
+        room.visualTick();
+    });
+}
 
+var gameTick = function() {
+    
     //Tick ship
     ship.tick();
     if (ship.isWarp) return;
     
-    console.log("New turn:");
-
     //Tick all crew
     _.each(ship.crew, function(person) {
         person.tick();
@@ -1222,8 +1295,6 @@ var gameTick = function() {
     information = _.filter(information, function(info) {
         return !(info.markedForRemoval);
     });
-
-    printShipStatus();
 }
 
 var startEvent = function() {
@@ -1347,6 +1418,10 @@ var testImg = new Image();
 testImg.src = "test.png";
 var linkImg = new Image();
 linkImg.src = "link.png";
+var alienImg = new Image();
+alienImg.src = "alien.png";
+
+
 var render = function() {
     context.fillStyle = "gray";
     context.fillRect(0,0, 1024, 768);
@@ -1359,31 +1434,56 @@ var render = function() {
             return (room.dimensions);
         })
         .each(function(room) {
-            //context.rect.apply(context, room.dimensions);
-            //context.stroke();
+            context.beginPath();
+            var color = "#ccc";
+            if (room.activated > 0) {
+                color = "#0f0";
+            } else if (room.hover) {
+                color = "#00f";
+            }
+            context.strokeStyle = color;
+            context.rect.apply(context, room.dimensions);
+            context.stroke();
 
-            _.each(room.crew, function(person, idx) {
-                var x = room.dimensions[0] + 5 + (30 * idx);
-                var y = room.dimensions[1] + 10;
-                //context.rect(x, y,10,10);
-                //context.stroke();
-                context.drawImage(linkImg, x, y);
-                context.fillStyle = "black";
-                context.fillText(person.name.substr(0, 3),x,y);
+            var aliens = _.filter(room.items, function(item) {
+                return (item instanceof Alien);
+            });
+            var livingThings = room.crew.concat(aliens);
+            
+            _.each(livingThings, function(livingThing, idx) {
+                livingThing.dimensions[0] = room.dimensions[0] + 15 + (35 * idx);
+                livingThing.dimensions[1] = room.dimensions[1] + 15;
+
+                var img = linkImg;
+                var name = livingThing.name.substr(0, 3);
+                if (livingThing instanceof Alien) {
+                    img = alienImg;
+                    name = "Alien";
+                }
+                context.drawImage(img, livingThing.dimensions[0], livingThing.dimensions[1]);
+                context.fillText(name, livingThing.dimensions[0], livingThing.dimensions[1]);
+                if (livingThing === mousePressedPerson) {
+                    context.beginPath();
+                    context.strokeStyle = "#f00";
+                    context.rect(livingThing.dimensions[0], livingThing.dimensions[1], 33, 33);
+                    context.stroke();
+                }
             })
         });
 
+    if (HALTED) {
+        context.fillStyle = "red";
+        context.font = "30px Arial";
+        context.fillText("PAUSED", 430, 30);
+    }
 }
 
-var counter = 0;
 setInterval(function() {
+    !HALTED && gameTick();
+    
+    visualTick();
     render();
-    if (HALTED) return;
-    counter++;
-    if (counter > TICK_DURATION) {
-        gameTick();
-        counter = 0;
-    }
+
 }, INTERVAL_DURATION);
 
 
@@ -1725,10 +1825,22 @@ if (SCENARIO !== false) {
             gameTick();
             gameTick();
         break;
+        case 17:
+            bridge.crew = [player, pilot];
+            var spawningAlien = new Alien();
+            bridge.items.push(spawningAlien);
+            medbay.crew = [];
+            storageroom.crew = [];
+            kitchen.crew = [];
+            engineroom.crew = [];
+            bedroom.crew = [];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+        break;
     }
 } else {
     // Start game
     startEvent();
-    printShipStatus();
 }
 
