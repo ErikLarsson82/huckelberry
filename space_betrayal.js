@@ -9,8 +9,17 @@ var SCENARIO = false;
 
 var DEBUG_SEED = false;
 
+var LOCKED = "Locked";
+
 var canvas = document.getElementById('canvas');
 var context = canvas.getContext("2d");
+
+var testImg = new Image();
+testImg.src = "test.png";
+var linkImg = new Image();
+linkImg.src = "link.png";
+var linkPurpleImg = new Image();
+linkPurpleImg.src = "link_purple.png";
 
 canvas.oncontextmenu = function() {
    return false; 
@@ -39,24 +48,32 @@ document.addEventListener("mousemove", function(e) {
 });
 
 document.addEventListener("mousedown", function(e) {
-    /*if (e.button === 0) {
+    if (e.button === 0) {
         var hits = detectHits(crew, e);
         
+        function reset() {
+            if (mousePressedPerson) mousePressedPerson.selected = false;
+        } 
         if (hits.length > 0) {
+            reset();
             mousePressedPerson = hits[0];
+            hits[0].selected = true;
         } else {
+            reset();
             mousePressedPerson = null;
         }
     } else if (e.button === 2) {
         if (mousePressedPerson) {
             var hits = detectHits(ship.rooms, e);
-
+            
             if (hits[0]) {
-                hits[0].activated = 60;
-                moveRoute(mousePressedPerson, hits[0]);
+                var result = _.find(mousePressedPerson.actions, function(action) {
+                    return action.name === "Move";
+                });
+                result && result.event(hits[0]);
             }
         }
-    }*/
+    }
 });
 
 document.addEventListener("keydown", function(e) {
@@ -89,12 +106,6 @@ var seed = (DEBUG_SEED) ? DEBUG_SEED : randomSeed;
 console.log("Using seed " + seed);
 Math.seedrandom(seed);
 
-var GameObject = function(tick, visualTick, draw) {
-    this.tick = tick || function() {};
-    this.visualTick = visualTick || function() {};
-    this.draw = draw || function() {};
-}
-
 /*var DamageTick = function(x, y, amount) {
     var ticker = new GameObject();
     ticker.time = 180;
@@ -119,7 +130,7 @@ var GameObject = function(tick, visualTick, draw) {
 }*/
 
 // People
-var Person = function(name, idx) {}
+//var Person = function(name, idx) {}
     /*this.dimensions = [0, 0, 33, 33];
     this.name = name;
     this.hp = 5;
@@ -196,6 +207,22 @@ var Person = function(name, idx) {}
     })
 }*/
 
+var mixinWalkerAI = function(object) {
+    var preserveTick = object.tick;
+    var max = 100;
+    var counter = max;
+    object.tick = function() {
+        preserveTick && preserveTick();
+        counter -= 1;
+        if (counter < 0) {
+            counter = max;
+            var room = findInWhatRoom(object);
+            var randomConnectedRoom = room.connections[Math.floor(Math.random() * room.connections.length)];
+            executeMove(object, randomConnectedRoom);
+        }
+    }
+}
+
 var mixinAI = function(person) {
     var preserve = person.tick;
     person.goUnconscious = function() {
@@ -251,39 +278,81 @@ var mixinPlayer = function(player) {
     }
 }
 
-var makeFocusable = function(object, condition) {
-    object.hover = false;
-    object.hoverCondition = condition;
+var tickable = function(object, inputFunc) {
+    object.tick = inputFunc;
 }
 
-/*var player = new Person("You", 0);
-mixinPlayer(player);
-player.inventory.push(new FirstAidKit());
+var renderable = function(object) {
+    object.draw = function() {
+        context.drawImage(this.img, this.dimensions[0], this.dimensions[1]);
+    }
+}
 
-var medic = new Person("Medic", 1);
-mixinAI(medic);
-medic.inventory.push(new FirstAidKit());
+var selectable = function(object, condition) {
+    object.hover = false;
+    object.selected = false;
+    object.hoverCondition = condition;
+    var stowDraw = object.draw;
+    object.draw = function() {
+        stowDraw.call(object);
+        if (object.selected) {
+            context.beginPath();
+            context.strokeStyle = "#f00";
+            context.rect.apply(context, object.dimensions);
+            context.stroke();
+        }
+    }
+}
 
-var engineer = new Person("Engineer", 2);
-mixinAI(engineer);
+var walkable = function(object) {
+    object.actions.push({
+        name: "Move",
+        event: function(room) {
+            executeMove(object, room);
+        }
+    });
+}
 
-var warrior = new Person("Warrior", 3);
-mixinAI(warrior);
 
-var pilot = new Person("Pilot", 4);
-mixinAI(pilot);*/
+var Entity = function() {
+    this.actions = [];
+}
+
+var player = new Entity();
+_.extend(player, {
+    name: "You",
+    img: linkImg,
+    dimensions: [0, 0, 33, 33]
+})
+tickable(player, function() {});
+renderable(player);
+selectable(player, function() { return true; });
+walkable(player);
+
+var medic = new Entity();
+_.extend(medic, {
+    name: "Medic",
+    img: linkPurpleImg,
+    dimensions: [0, 0, 33, 33]
+})
+tickable(medic, function() {});
+renderable(medic);
+selectable(medic, function() { return true; });
+walkable(medic);
+
+var entities = [];
 
 // Ship
 var Room = function(name, dimensions) {
     this.name = name;
     this.connections = [];
-    this.items = [];
+    this.entities = [];
     this.dimensions = dimensions;
     this.activated = 0;
     this.visualTick = function() {
         if (this.activated > 0) this.activated -= 1;
     }
-    makeFocusable(this, function() {
+    selectable(this, function() {
         return !!mousePressedPerson;
     });
 }
@@ -369,19 +438,20 @@ var timesTwo = function(array) {
     })
 }
 
-var gameObjects = [];
-
-var bridge = new Room("Bridge      ", timesTwo([148, 114, 215, 96]));
-var medbay = new Room("Medbay      ", timesTwo([368, 80, 112, 96]));
-var storageroom = new Room("Storageroom ", timesTwo([384, 181, 80, 73]));
-var kitchen = new Room("Kitchen     ", timesTwo([32, 80, 112, 90]));
-var engineroom = new Room("Engineroom  ", timesTwo([167, 37, 80, 73]));
-var bedroom = new Room("Bedroom     ", timesTwo([48, 174, 80, 75]));
-var shieldroom = new Room("Shieldroom  ", timesTwo([251, 37, 80, 73]));
+var bridge = new Room("Bridge", timesTwo([148, 114, 215, 96]));
+var medbay = new Room("Medbay", timesTwo([368, 80, 112, 96]));
+var storageroom = new Room("Storageroom", timesTwo([384, 181, 80, 73]));
+var kitchen = new Room("Kitchen", timesTwo([32, 80, 112, 90]));
+var engineroom = new Room("Engineroom", timesTwo([167, 37, 80, 73]));
+var bedroom = new Room("Bedroom", timesTwo([48, 174, 80, 75]));
+var shieldroom = new Room("Shieldroom", timesTwo([251, 37, 80, 73]));
 var escapePod1 = new Room("Escape pod 1", timesTwo([66, 33, 43, 43]));
 var escapePod2 = new Room("Escape pod 2", timesTwo([403, 34, 43, 43]));
 
-//var crew = [player, medic, pilot, engineer, warrior];
+bridge.entities.push(player);
+bridge.entities.push(medic);
+
+var crew = [player, medic] //  , pilot, engineer, warrior];
 
 var door1 = new Door(bedroom, kitchen);
 var door2 = new Door(kitchen, bridge);
@@ -403,6 +473,15 @@ escapePod1.connections = [kitchen];
 escapePod2.connections = [medbay];
 
 var rooms = [escapePod1, bedroom, kitchen, bridge, engineroom, shieldroom, medbay, storageroom, escapePod2];
+
+_.each(rooms, function(room) {
+    tickable(room, function() {
+        _.each(this.entities, function(entity, idx) {
+            entity.dimensions[0] = room.dimensions[0] + 40 + (45 * idx);
+            entity.dimensions[1] = room.dimensions[1] + 40; 
+        });
+    });
+})
 
 var placeCrewRandomly = function() {
     _.each(crew, function(person) {
@@ -447,7 +526,7 @@ var ship = {
 }*/
 
 var moveRoute = function(who, where) {
-    var route = findRoute(findPerson(who), where);
+    /*var route = findRoute(findPerson(who), where);
     if (route) {
         route.shift();
         _.each(route, function(stop) {
@@ -456,7 +535,7 @@ var moveRoute = function(who, where) {
         return "Route scheduled with " + (route.length - 1) + ' stops';
     } else {
         return "Route failed"
-    }
+    }*/
 }
 
 /*var investigate = function(who) {
@@ -606,15 +685,13 @@ var isBrawling = function(who, what) {
 var isLegalMove = function(who, where) {
     var legal = true;
     _.each(rooms, function(room) {
-        _.each(room.crew, function(person) {
-            if (who === person) {
+        _.each(room.entities, function(entity) {
+            if (who === entity) {
                 if (!_.contains(room.connections, where)) {
-                    console.log('[[[ ' + who.name + ' tried illegal move ]]]');
                     legal = false;
                 } else {
                     var relevantDoor = findDoor(room, where);
                     if (relevantDoor.status === LOCKED) {
-                        console.log('[[[ ' + who.name + ' finds door locked ]]]');
                         legal = false;
                     }
                 }
@@ -637,12 +714,12 @@ var executeMove = function(who, where) {
     if (!islegal) return false;
 
     rooms =_.each(rooms, function(room) {
-        room.items = _.filter(room.items, function(person) {
+        room.entities = _.filter(room.entities, function(person) {
             return !(who === person);
         })
     })
 
-    where.items.push(who);
+    where.entities.push(who);
     return true;
 }
 
@@ -651,38 +728,37 @@ var visualTick = function() {
         room.visualTick();
     });
 
-    _.each(gameObjects, function(object) {
+    _.each(entities, function(object) {
         object.visualTick();
     });
 
-    gameObjects = _.filter(gameObjects, function(object) {
+    entities = _.filter(entities, function(object) {
         return !object.markedForRemoval;
     });
 }
 
 var gameTick = function() {
 
-    _.each(gameObjects, function(object) {
+    _.each(entities, function(object) {
         object.tick();
     });
     
     //Tick all items in rooms
     _.each(rooms, function(room) {
-        _.each(room.items, function(item) {
-            item.tick && item.tick();
+        room.tick && room.tick();
+
+        _.each(room.entities, function(entity) {
+            entity.tick && entity.tick();
         });
     });
 
     //Remove items
     _.each(rooms, function(room) {
-        room.items = _.filter(room.items, function(item) {
-            return !(item.markedForRemoval === true);
+        room.items = _.filter(room.entities, function(entity) {
+            return !(entity.markedForRemoval === true);
         });
     });
 }
-
-var testImg = new Image();
-testImg.src = "test.png";
 
 var render = function() {
     context.fillStyle = "gray";
@@ -707,17 +783,16 @@ var render = function() {
             context.rect.apply(context, room.dimensions);
             context.stroke();
 
-            _.each(room.items, function(item, idx) {
-                item.dimensions[0] = room.dimensions[0] + 40 + (45 * idx);
-                item.dimensions[1] = room.dimensions[1] + 40;
+            _.each(room.entities, function(entity, idx) {
+                entity.draw && entity.draw();
 
-                item.draw();
+                /*item.draw();
                 if (item === mousePressedPerson) {
                     context.beginPath();
                     context.strokeStyle = "#f00";
                     context.rect(item.dimensions[0], item.dimensions[1], 33, 33);
                     context.stroke();
-                }
+                }*/
             })
         });
 
@@ -736,7 +811,7 @@ var render = function() {
         context.fillText("PAUSED", 430, 30);
     }
 
-    _.each(gameObjects, function(object) {
+    _.each(entities, function(object) {
         object.draw();
     });
 }
