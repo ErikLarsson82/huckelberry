@@ -71,18 +71,13 @@ var detectHits = function(list, e) {
 }
 
 document.addEventListener("mousemove", function(e) {
-    if (mousePressedPerson) {
-        var hits = detectHits(ship.rooms, e);
-        _.each(ship.rooms, function(room) {
-            room.hover = false;
-        });   
-        if (hits[0] && hits[0] !== findPerson(mousePressedPerson)) {
-            hits[0].hover = true;
-        }
-    } else {
-        _.each(ship.rooms, function(room) {
-            room.hover = false;
-        });
+    var hits = detectHits(ship.rooms, e);
+    _.each(ship.rooms, function(room) {
+        room.hover = false;
+    });
+    if (hits[0] && hits[0].hoverCondition()) {
+        hits[0].hover = true;
+        return;
     }
 });
 
@@ -138,6 +133,11 @@ document.addEventListener("keydown", function(e) {
         HALTED = true;
         console.log("Manual tick");
         gameTick();
+    } else if (e.keyCode === 68) {
+        //D
+        if (mousePressedPerson) {
+            mousePressedPerson.queue[0] && mousePressedPerson.queue.shift()
+        }
     }
 });
 
@@ -179,8 +179,8 @@ var GameObject = function(tick, visualTick, draw) {
 var DamageTick = function(x, y, amount) {
     var ticker = new GameObject();
     ticker.time = 180;
-    ticker.x = x;
-    ticker.y = y;
+    ticker.x = x + Math.floor(Math.random() * 10);
+    ticker.y = y + Math.floor(Math.random() * 10);
     ticker.markedForRemoval = false;
     ticker.visualTick = function() {
         this.time -= 1;
@@ -203,7 +203,7 @@ var DamageTick = function(x, y, amount) {
 var Person = function(name, idx) {
     this.dimensions = [0, 0, 33, 33];
     this.name = name;
-    this.hp = 10;
+    this.hp = 5;
     this.idx = idx;
     this.queue = [];
     this.markedForRemoval = false;
@@ -212,6 +212,18 @@ var Person = function(name, idx) {
     this.conscious = true;
     this.inventory = [];
     this.firemanCarry = null;
+    this.draw = function() {
+        var img;
+        if (this.conscious) {
+            img = linkImg;
+            if (isBrawling(this)) img = linkBrawlImg;
+        } else {
+            img = linkUnconsiousImg;
+        }
+        context.drawImage(img, this.dimensions[0], this.dimensions[1]);
+        context.fillStyle = "black";
+        context.fillText(this.name, this.dimensions[0], this.dimensions[1]-2);
+    },
     this.iJustSawGooRemoved = function(goo) {
         this.iShouldReportThis = true;
         this.addInformation(new Information(GOO_REMOVED_STATUS, this, findPerson(this), goo));
@@ -259,6 +271,10 @@ var Person = function(name, idx) {
             }
         }
     }
+
+    makeFocusable(this, function() {
+        return this.conscious;
+    })
 }
 
 var mixinAI = function(person) {
@@ -304,6 +320,7 @@ var mixinPlayer = function(player) {
     var preserve = player.tick;
     player.tick = function() {
         if (this.hp === 1) {
+            this.conscious = false;
             console.log("*** GAME OVER, YOU ARE DEAD");
         }
         _.each(information, function(info) {
@@ -313,6 +330,11 @@ var mixinPlayer = function(player) {
         }.bind(this))
         preserve.call(player);
     }
+}
+
+var makeFocusable = function(object, condition) {
+    object.hover = false;
+    object.hoverCondition = condition;
 }
 
 var FirstAidKit = function() {}
@@ -341,11 +363,13 @@ var Room = function(name, dimensions) {
     this.crew = [];
     this.items = [];
     this.dimensions = dimensions;
-    this.hover = false;
     this.activated = 0;
     this.visualTick = function() {
         if (this.activated > 0) this.activated -= 1;
     }
+    makeFocusable(this, function() {
+        return !!mousePressedPerson;
+    });
 }
 
 var Engine = function() {
@@ -415,17 +439,20 @@ var Alien = function() {
     this.dimensions = [0, 0, 33, 33];
     this.name = "Alien" + alienCounter;
     alienCounter++;
-    this.hp = 1200;
+    this.hp = 30;
     this.hidden = false;
     this.type = ALIEN_STATUS;
     this.markedForRemoval = false;
     this.action = null,
+    this.draw = function() {
+        var img = alienImg;
+        if (this.action && this.action.name === "Brawl") img = alienBrawlImg;
+        context.drawImage(img, this.dimensions[0], this.dimensions[1]);
+        context.fillStyle = "black";
+        context.fillText(this.name, this.dimensions[0], this.dimensions[1]-1);
+    },
     this.tick = function() {
         if (this.hp <= 0) {
-            //if (findItem(this) === findPerson(player)) logIfApplicable('-> Killed ' + this.name, findItem(this));
-            /*_.each(findItem(this).crew, function(person) {
-                person.defeatedAlien(this);
-            }.bind(this));*/
             this.markedForRemoval = true;
         } else {
             if (this.action) {
@@ -446,15 +473,19 @@ var Alien = function() {
             });
 
             if (eligble.length < 1) {
-                //logIfApplicable('Alien has noone to hurt', alienRoom);
                 return;
             }
             this.action = {
                 target: null,
+                name: "Brawl",
                 idx: 180,
                 event: function(parent) {
+                    if (!(this.target && this.target.conscious && findItem(parent) === findPerson(this.target))) {
+                        parent.action = null;
+                        return;
+                    }
                     if (this.idx < 0) {
-                        this.target && this.target.hurt(parent);
+                        this.target.hurt(parent)
                         this.idx = 180
                     } else {
                         this.idx -= 1;
@@ -464,22 +495,11 @@ var Alien = function() {
             if (amountBrawling.length === 0) {
                 var randomidx = Math.floor(Math.random() * eligble.length)
                 this.action.target = eligble[randomidx];
-                //var dmg = person.hurt(this);
-                //var random = (eligble.length > 1) ? 'randomly ' : ''
-                //logIfApplicable('Alien ' + random + 'hurts ' + person.name + ' for ' + dmg + ' HP, now he has ' + person.hp, alienRoom);
             } else if (amountBrawling.length === 1) {
                 this.action.target = amountBrawling[0];
-                //var dmg = amountBrawling[0].hurt(this);
-                //logIfApplicable('Alien hurts lone brawler ' + amountBrawling[0].name + ' for '+dmg+' HP, now he has ' + amountBrawling[0].hp, alienRoom);
             } else {
-                //if (Math.random() > 0.8) {
                 var randomidx = Math.floor(Math.random() * amountBrawling.length)
-                this.action.target = amountBrawling[randomidx];
-                    //var dmg = person.hurt(this);
-                    //logIfApplicable('Alien hurts brawler ' + person.name + ' for '+dmg+' HP, now he has ' + person.hp, alienRoom);
-                /*} else {
-                    logIfApplicable('Alien failed to hurt ' + prettyList(_.pluck(amountBrawling, 'name')) + ' because they where many', alienRoom);
-                }*/
+                this.action.target = amountBrawling[randomidx];                
             }
         }
     }
@@ -1495,6 +1515,8 @@ var linkUnconsiousImg = new Image();
 linkUnconsiousImg.src = "link_unconsious.png";
 var alienImg = new Image();
 alienImg.src = "alien.png";
+var alienBrawlImg = new Image();
+alienBrawlImg.src = "alien_brawl.png";
 
 
 var render = function() {
@@ -1526,24 +1548,10 @@ var render = function() {
             var livingThings = room.crew.concat(aliens);
             
             _.each(livingThings, function(livingThing, idx) {
-                livingThing.dimensions[0] = room.dimensions[0] + 15 + (35 * idx);
-                livingThing.dimensions[1] = room.dimensions[1] + 15;
+                livingThing.dimensions[0] = room.dimensions[0] + 40 + (45 * idx);
+                livingThing.dimensions[1] = room.dimensions[1] + 40;
 
-                var img = linkImg;
-                var name = livingThing.name.substr(0, 3);
-                if (livingThing instanceof Alien) {
-                    img = alienImg;
-                    name = "Alien";
-                } else {
-                    if (livingThing.conscious) {
-                        img = linkImg;
-                        if (isBrawling(livingThing)) img = linkBrawlImg;
-                    } else {
-                        img = linkUnconsiousImg;
-                    }
-                }
-                context.drawImage(img, livingThing.dimensions[0], livingThing.dimensions[1]);
-                context.fillText(name, livingThing.dimensions[0], livingThing.dimensions[1]);
+                livingThing.draw();
                 if (livingThing === mousePressedPerson) {
                     context.beginPath();
                     context.strokeStyle = "#f00";
@@ -1580,7 +1588,6 @@ setInterval(function() {
     render();
 
 }, INTERVAL_DURATION);
-
 
 if (SCENARIO !== false) {
     console.log('Using Custom Scenario ' + SCENARIO + ':');
@@ -1921,7 +1928,7 @@ if (SCENARIO !== false) {
             gameTick();
         break;
         case 17:
-            bridge.crew = [pilot];
+            bridge.crew = [pilot, warrior];
             var spawningAlien = new Alien();
             bridge.items.push(spawningAlien);
             medbay.crew = [player];
@@ -1932,6 +1939,7 @@ if (SCENARIO !== false) {
             shieldroom.crew = [];
             escapePod1.crew = [];
             escapePod2.crew = [];
+            gameTick();
         break;
     }
 } else {
