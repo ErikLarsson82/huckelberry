@@ -11,15 +11,32 @@ var DEBUG_SEED = false;
 
 var LOCKED = "Locked";
 
+var INFINITE = 99999999999;
+
 var canvas = document.getElementById('canvas');
 var context = canvas.getContext("2d");
 
 var testImg = new Image();
 testImg.src = "test.png";
+
+var profile1 = new Image();
+profile1.src = "profile1.png";
+
+var profile2 = new Image();
+profile2.src = "profile2.png";
+
+var alienImg = new Image();
+alienImg.src = "alien.png";
+
 var linkImg = new Image();
 linkImg.src = "link.png";
+var linkWalkingImg = new Image();
+linkWalkingImg.src = "link_walking.png";
+
 var linkPurpleImg = new Image();
 linkPurpleImg.src = "link_purple.png";
+var linkPurpleWalkingImg = new Image();
+linkPurpleWalkingImg.src = "link_purple_walking.png";
 
 canvas.oncontextmenu = function() {
    return false; 
@@ -37,14 +54,21 @@ var detectHits = function(list, e) {
 }
 
 document.addEventListener("mousemove", function(e) {
-    /*var hits = detectHits(ship.rooms, e);
     _.each(ship.rooms, function(room) {
         room.hover = false;
+        _.each(room.entities, function(entity) {
+            entity.hover = false;
+        })
     });
-    if (hits[0] && hits[0].hoverCondition()) {
-        hits[0].hover = true;
-        return;
-    }*/
+
+    var hits = detectHits(ship.rooms, e);
+    _.each(ship.rooms, function(room) {
+        hits = hits.concat(detectHits(room.entities, e))
+    });
+
+    _.each(hits, function(hit) {
+        hit.hover = hit.hoverCondition();
+    });
 });
 
 document.addEventListener("mousedown", function(e) {
@@ -65,13 +89,20 @@ document.addEventListener("mousedown", function(e) {
     } else if (e.button === 2) {
         if (mousePressedPerson) {
             var hits = detectHits(ship.rooms, e);
-            
-            if (hits[0]) {
-                var result = _.find(mousePressedPerson.actions, function(action) {
-                    return action.name === "Move";
-                });
-                result && result.event(hits[0]);
-            }
+            _.each(ship.rooms, function(room) {
+                hits = hits.concat(detectHits(room.entities, e))
+            });
+
+            if (hits.length > 0) mousePressedPerson.removeAllQueue();
+            _.each(hits, function(hit) {
+                if (hit instanceof Room && findInWhatRoom(mousePressedPerson) !== hit) {
+                    mousePressedPerson.isWalkable && mousePressedPerson.addToQueue(mousePressedPerson.generateWalkAction(hit))
+                } else if (hit.enemy) {
+                    mousePressedPerson.isBrawlable &&  mousePressedPerson.addToQueue(mousePressedPerson.generateBrawlAction(hit))
+                } else if (hit.friend) {
+                    console.log('High five');
+                }
+            });
         }
     }
 });
@@ -207,7 +238,7 @@ Math.seedrandom(seed);
     })
 }*/
 
-var mixinWalkerAI = function(object) {
+function mixinWalkerAI(object) {
     var preserveTick = object.tick;
     var max = 100;
     var counter = max;
@@ -223,76 +254,27 @@ var mixinWalkerAI = function(object) {
     }
 }
 
-var mixinAI = function(person) {
-    var preserve = person.tick;
-    person.goUnconscious = function() {
-        this.queue = [];
-        this.conscious = false;
-        logIfApplicable(this.name + " is unconscious", findPerson(this))
-    }
-    person.tick = function() {
-        if (this.hp === 1 && this.conscious === true) {
-            this.goUnconscious();
-            return;
-        }
-        if (!this.conscious) return;
-
-        if (this.name === 'Pilot' && findPerson(this) === bridge) {
-            this.information = addInformation(this.information, new Information(ENGINE_STATUS, this, findPerson(this), engine.status));
-            this.information = addInformation(this.information, new Information(HULL_STATUS, this, findPerson(this), controlPanel.breachDetected));
-        }
-
-        var aliens = _.filter(findPerson(this).items, function(item) {
-           return item.type === "Alien"; 
-        });
-        if (aliens.length > 0) {
-            _.each(aliens, function(alien) {
-                this.foundAlien(alien);
-            }.bind(this));
-            if (this.queue.length === 0) {
-                brawl(this, aliens[0]);
-            }
-        } else {
-            if (this.iShouldReportThis) {
-                this.iShouldReportThis = false;
-                report(this, isAnyInformationCritical(this.information));
-            }
-        }
-        preserve.call(person);
-    }
-}
-
-var mixinPlayer = function(player) {
-    var preserve = player.tick;
-    player.tick = function() {
-        if (this.hp === 1) {
-            this.conscious = false;
-            console.log("*** GAME OVER, YOU ARE DEAD");
-        }
-        _.each(information, function(info) {
-            if (info.room === findPerson(this)) {
-                info.markedForRemoval = true;
-            }
-        }.bind(this))
-        preserve.call(player);
-    }
-}
-
-var tickable = function(object, inputFunc) {
+function tickable(object, inputFunc) {
     object.tick = inputFunc;
 }
 
-var renderable = function(object) {
+function renderable(object) {
     object.draw = function() {
-        context.drawImage(this.img, this.dimensions[0], this.dimensions[1]);
+        var img = this.img;
+        if (object.walking) img = this.imgWalking;
+        context.drawImage(img, this.dimensions[0], this.dimensions[1]);
+
+        if (this.profile && mousePressedPerson === this) {
+            context.drawImage(this.profile, 90, 520)
+        }
     }
 }
 
-var selectable = function(object, condition) {
+function selectable(object, condition) {
     object.hover = false;
     object.selected = false;
     object.hoverCondition = condition;
-    var stowDraw = object.draw;
+    var stowDraw = object.draw || function() {};
     object.draw = function() {
         stowDraw.call(object);
         if (object.selected) {
@@ -300,17 +282,118 @@ var selectable = function(object, condition) {
             context.strokeStyle = "#f00";
             context.rect.apply(context, object.dimensions);
             context.stroke();
+        } else if (object.hover) {
+            context.beginPath();
+            context.strokeStyle = "#00f";
+            context.rect.apply(context, object.dimensions);
+            context.stroke();
         }
     }
 }
 
-var walkable = function(object) {
-    object.actions.push({
-        name: "Move",
-        event: function(room) {
-            executeMove(object, room);
+function walkable(object) {
+    object.walking = false;
+    object.isWalkable = true;
+    object.generateWalkAction = function(where) {
+        return {
+            where: where,
+            who: object,
+            name: "Move",
+            duration: 120,
+            abort: function() {
+                this.walking = false;
+            },
+            event: function(duration) {
+                this.walking = true;
+                if (duration === 0) {
+                    this.walking = false;
+                    return executeMove(this, where);
+                }
+                return true;
+            }.bind(object)
         }
-    });
+    }
+}
+
+function healthable(object, health) {
+    object.health = health;
+    object.hurt = function(dmg) {
+        console.log(this.name + " took " + dmg)
+        object.health = object.health - dmg;
+    }
+}
+
+function brawlable(object, punchingPower) {
+    object.punchingPower = punchingPower;
+    object.brawling = false;
+    object.isBrawlable = true;
+    object.generateBrawlAction = function(whom) {
+        var counter = 100;
+        return {
+            who: object,
+            target: whom,
+            name: "Brawl",
+            duration: INFINITE,
+            abort: function() {
+                this.brawling = false;
+            },
+            event: function(duration) {
+                counter -= 1;
+                this.brawling = true;
+                if (counter < 0) {
+                    whom.hurt(this.punchingPower);
+                    counter = 100;
+                }
+                return true;
+            }.bind(object)
+        }
+    }
+}
+
+function brawlAI(object) {
+    var storeTick = object.tick;
+    object.tick = function() {
+        storeTick.call(object);
+
+        var opponents = _.filter(findInWhatRoom(this).entities, function(entity) {
+            return entity.health && entity !== this;
+        }.bind(this));
+        var opponent = opponents[Math.floor(Math.random() * opponents.length)];
+        if (opponent) {
+            if (this.queue.length === 0) this.addToQueue(this.generateBrawlAction(opponent));
+        } else {
+            this.queue.length = 0;
+        }
+    }
+}
+
+function actionQueueAble(object) {
+    object.queue = [];
+    object.addToQueue = function(action) {
+        this.queue.push(action);
+    };
+    object.removeAllQueue = function() {
+        if (this.queue[0]) {
+            this.queue[0].abort.call(this);
+        }
+        this.queue = [];
+    };
+    var storedTick = object.tick;
+    object.tick = function() {
+        if (this.queue.length > 0) {
+            var currentQueue = this.queue[0];
+            var result = currentQueue.event(currentQueue.duration);
+            if (result !== true) {
+                this.queue.shift();
+            } else {
+                currentQueue.duration = currentQueue.duration - 1;
+                if (currentQueue.duration < 0) {
+                    this.queue.shift();
+                }
+            }
+        }
+        storedTick && storedTick();
+    }
 }
 
 
@@ -321,24 +404,52 @@ var Entity = function() {
 var player = new Entity();
 _.extend(player, {
     name: "You",
+    friend: true,
+    profile: profile1,
     img: linkImg,
+    imgWalking: linkWalkingImg,
     dimensions: [0, 0, 33, 33]
 })
 tickable(player, function() {});
 renderable(player);
 selectable(player, function() { return true; });
 walkable(player);
+actionQueueAble(player);
+healthable(player, 20);
+brawlable(player, 3);
 
 var medic = new Entity();
 _.extend(medic, {
     name: "Medic",
+    friend: true,
+    profile: profile2,
     img: linkPurpleImg,
+    imgWalking: linkPurpleWalkingImg,
     dimensions: [0, 0, 33, 33]
 })
 tickable(medic, function() {});
 renderable(medic);
 selectable(medic, function() { return true; });
 walkable(medic);
+actionQueueAble(medic);
+healthable(medic, 20);
+brawlable(medic, 2);
+
+var alien = new Entity();
+_.extend(alien, {
+    name: "Alien",
+    enemy: true,
+    img: alienImg,
+    dimensions: [0, 0, 33, 33]
+})
+renderable(alien);
+actionQueueAble(alien);
+brawlable(alien, 3);
+brawlAI(alien);
+healthable(alien, 20);
+selectable(alien, function() {
+    return true; //!!mousePressedPerson;
+});
 
 var entities = [];
 
@@ -353,7 +464,10 @@ var Room = function(name, dimensions) {
         if (this.activated > 0) this.activated -= 1;
     }
     selectable(this, function() {
-        return !!mousePressedPerson;
+        var childrenHovered = _.filter(this.entities, function(entity) {
+            return entity.hover;
+        });
+        return !!mousePressedPerson && childrenHovered.length === 0;
     });
 }
 
@@ -450,6 +564,8 @@ var escapePod2 = new Room("Escape pod 2", timesTwo([403, 34, 43, 43]));
 
 bridge.entities.push(player);
 bridge.entities.push(medic);
+
+kitchen.entities.push(alien);
 
 var crew = [player, medic] //  , pilot, engineer, warrior];
 
@@ -701,7 +817,7 @@ var isLegalMove = function(who, where) {
     return legal;
 }
 
-var executeMove = function(who, where) {
+function executeMove(who, where) {
     if (!who) {
         console.log('Who?');
         return false;
@@ -761,7 +877,7 @@ var gameTick = function() {
 }
 
 var render = function() {
-    context.fillStyle = "gray";
+    context.fillStyle = "#292929";
     context.fillRect(0,0, 1024, 768);
     context.font = "12px Arial";
 
@@ -772,16 +888,7 @@ var render = function() {
             return (room.dimensions);
         })
         .each(function(room) {
-            context.beginPath();
-            var color = "#ccc";
-            if (room.activated > 0) {
-                color = "#0f0";
-            } else if (room.hover) {
-                color = "#00f";
-            }
-            context.strokeStyle = color;
-            context.rect.apply(context, room.dimensions);
-            context.stroke();
+            room.draw && room.draw();
 
             _.each(room.entities, function(entity, idx) {
                 entity.draw && entity.draw();
@@ -797,11 +904,11 @@ var render = function() {
         });
 
     if (mousePressedPerson) {
-        context.fillStyle = "black";
+        context.fillStyle = "white";
         context.font = "12px Arial";
-        context.fillText("Queue:", 80, 540);
+        context.fillText("Queue:", 360, 540);
         _.each(mousePressedPerson.queue, function(item, idx) {
-            context.fillText(item.name, 80 + (idx * 120), 560);
+            context.fillText(item.name, 360 + (idx * 120), 560);
         })
     }
 
@@ -842,4 +949,6 @@ if (SCENARIO !== false) {
             gameTick();
         break;
     }
+} else {
+    gameTick();
 }
