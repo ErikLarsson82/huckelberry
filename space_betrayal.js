@@ -27,11 +27,23 @@ profile2.src = "profile2.png";
 
 var alienImg = new Image();
 alienImg.src = "alien.png";
+var alienBrawlImg = new Image();
+alienBrawlImg.src = "alien_brawl.png";
+var alienBrawlPunchingImg = new Image();
+alienBrawlPunchingImg.src = "alien_brawl_punching.png";
+var alienUnconsciousImg = new Image();
+alienUnconsciousImg.src = "alien_unconscious.png";
 
 var linkImg = new Image();
 linkImg.src = "link.png";
 var linkWalkingImg = new Image();
 linkWalkingImg.src = "link_walking.png";
+var linkBrawlImg = new Image();
+linkBrawlImg.src = "link_brawl.png";
+var linkBrawlPunchingImg = new Image();
+linkBrawlPunchingImg.src = "link_brawl_punching.png";
+var linkUnconsciousImg = new Image();
+linkUnconsciousImg.src = "link_unconsious.png";
 
 var linkPurpleImg = new Image();
 linkPurpleImg.src = "link_purple.png";
@@ -137,7 +149,7 @@ var seed = (DEBUG_SEED) ? DEBUG_SEED : randomSeed;
 console.log("Using seed " + seed);
 Math.seedrandom(seed);
 
-/*var DamageTick = function(x, y, amount) {
+var DamageTick = function(x, y, amount) {
     var ticker = new GameObject();
     ticker.time = 180;
     ticker.x = x + Math.floor(Math.random() * 10);
@@ -158,85 +170,7 @@ Math.seedrandom(seed);
         context.fillText(amount, this.x -1, this.y - 1 - (180 - this.time) / 5);
     }
     return ticker;
-}*/
-
-// People
-//var Person = function(name, idx) {}
-    /*this.dimensions = [0, 0, 33, 33];
-    this.name = name;
-    this.hp = 5;
-    this.idx = idx;
-    this.queue = [];
-    this.markedForRemoval = false;
-    this.iShouldReportThis = false;
-    this.information = [];
-    this.conscious = true;
-    this.inventory = [];
-    this.firemanCarry = null;
-    this.draw = function() {
-        var img;
-        if (this.conscious) {
-            img = linkImg;
-            if (isBrawling(this)) img = linkBrawlImg;
-        } else {
-            img = linkUnconsiousImg;
-        }
-        context.drawImage(img, this.dimensions[0], this.dimensions[1]);
-        context.fillStyle = "black";
-        context.fillText(this.name, this.dimensions[0], this.dimensions[1]-2);
-    },
-    this.iJustSawGooRemoved = function(goo) {
-        this.iShouldReportThis = true;
-        this.addInformation(new Information(GOO_REMOVED_STATUS, this, findPerson(this), goo));
-    };
-    this.hurt = function(what) {
-        if (what instanceof Alien) {
-            if (this.firemanCarry) {
-                this.hp = this.hp - 3;
-                gameObjects.push(new DamageTick(this.dimensions[0], this.dimensions[1], -3));
-                return 3;
-            } else {
-                gameObjects.push(new DamageTick(this.dimensions[0], this.dimensions[1], -1));
-                this.hp = this.hp - 1;
-                return 1;
-            }
-        }
-    }
-    this.addInformation = function(inputInfo) {
-        if (findPerson(this) !== findPerson(player) && this.conscious) {
-            this.information = addInformation.call(null, this.information, inputInfo);
-        }
-    };
-    this.foundAlien = function(alien) {
-        if (findPerson(this) !== findPerson(player)) {
-            this.iShouldReportThis = true;
-        }
-        this.addInformation(new Information(ALIEN_STATUS, this, findPerson(this), alien));
-    };
-
-    this.defeatedAlien = function(alien) {
-        this.addInformation(new Information(ALIEN_DEFEATED_STATUS, this, findPerson(this), alien));
-    }
-
-    this.tick = function() {
-        if (this.queue.length > 0) {
-            var currentQueue = this.queue[0];
-            var result = currentQueue.event(currentQueue.duration);
-            if (result !== true) {
-                this.queue.shift();
-            } else {
-                currentQueue.duration = currentQueue.duration - 1;
-                if (currentQueue.duration < 0) {
-                    this.queue.shift();
-                }
-            }
-        }
-    }
-
-    makeFocusable(this, function() {
-        return this.conscious;
-    })
-}*/
+}
 
 function mixinWalkerAI(object) {
     var preserveTick = object.tick;
@@ -262,6 +196,10 @@ function renderable(object) {
     object.draw = function() {
         var img = this.img;
         if (object.walking) img = this.imgWalking;
+        if (object.brawling) img = this.imgBrawling;
+        if (object.punching) img = this.imgPunching;
+        if (object.unconsius) img = this.imgUnconscious;
+
         context.drawImage(img, this.dimensions[0], this.dimensions[1]);
 
         if (this.profile && mousePressedPerson === this) {
@@ -317,8 +255,20 @@ function walkable(object) {
 
 function healthable(object, health) {
     object.health = health;
+    object.unconsius = false;
+    object.isConsciousable = true;
+    var storeTick = object.tick || function() {};
+    object.tick = function() {
+        if (object.health < 1) {
+            object.unconsius = true;
+        } else {
+            storeTick.call(object);
+        }
+    };
     object.hurt = function(dmg) {
-        console.log(this.name + " took " + dmg)
+        var x = object.dimensions[0] + Math.floor(Math.random() * 5);
+        var y = object.dimensions[1] - 8 - Math.floor(Math.random() * 10);
+        gameObjects.push(new DamageTick(x, y, -dmg));
         object.health = object.health - dmg;
     }
 }
@@ -326,6 +276,7 @@ function healthable(object, health) {
 function brawlable(object, punchingPower) {
     object.punchingPower = punchingPower;
     object.brawling = false;
+    object.punching = false;
     object.isBrawlable = true;
     object.generateBrawlAction = function(whom) {
         var counter = 100;
@@ -336,13 +287,23 @@ function brawlable(object, punchingPower) {
             duration: INFINITE,
             abort: function() {
                 this.brawling = false;
+                this.punching = false;
             },
             event: function(duration) {
                 counter -= 1;
                 this.brawling = true;
-                if (counter < 0) {
-                    whom.hurt(this.punchingPower);
+                if (counter === 20) {
+                    if (findInWhatRoom(this) !== findInWhatRoom(whom) || whom.unconsius) {
+                        this.brawling = false;
+                        this.punching = false;
+                        return false;    
+                    } else {
+                        whom.hurt(this.punchingPower);
+                        object.punching = true;
+                    }
+                } else if (counter < 0) {
                     counter = 100;
+                    object.punching = false;
                 }
                 return true;
             }.bind(object)
@@ -356,12 +317,14 @@ function brawlAI(object) {
         storeTick.call(object);
 
         var opponents = _.filter(findInWhatRoom(this).entities, function(entity) {
-            return entity.health && entity !== this;
+            return entity.health && entity !== this && entity.friend && !entity.unconsius;
         }.bind(this));
         var opponent = opponents[Math.floor(Math.random() * opponents.length)];
         if (opponent) {
             if (this.queue.length === 0) this.addToQueue(this.generateBrawlAction(opponent));
         } else {
+            this.brawling = false;
+            this.punching = false;
             this.queue.length = 0;
         }
     }
@@ -408,6 +371,9 @@ _.extend(player, {
     profile: profile1,
     img: linkImg,
     imgWalking: linkWalkingImg,
+    imgBrawling: linkBrawlImg,
+    imgPunching: linkBrawlPunchingImg,
+    imgUnconscious: linkUnconsciousImg,
     dimensions: [0, 0, 33, 33]
 })
 tickable(player, function() {});
@@ -415,8 +381,8 @@ renderable(player);
 selectable(player, function() { return true; });
 walkable(player);
 actionQueueAble(player);
-healthable(player, 20);
 brawlable(player, 3);
+healthable(player, 1);
 
 var medic = new Entity();
 _.extend(medic, {
@@ -425,6 +391,9 @@ _.extend(medic, {
     profile: profile2,
     img: linkPurpleImg,
     imgWalking: linkPurpleWalkingImg,
+    imgBrawling: linkBrawlImg,
+    imgPunching: linkBrawlPunchingImg,
+    imgUnconscious: linkUnconsciousImg,
     dimensions: [0, 0, 33, 33]
 })
 tickable(medic, function() {});
@@ -432,26 +401,54 @@ renderable(medic);
 selectable(medic, function() { return true; });
 walkable(medic);
 actionQueueAble(medic);
-healthable(medic, 20);
 brawlable(medic, 2);
+healthable(medic, 20);
 
 var alien = new Entity();
 _.extend(alien, {
     name: "Alien",
     enemy: true,
     img: alienImg,
+    imgBrawling: alienBrawlImg,
+    imgPunching: alienBrawlPunchingImg,
+    imgUnconscious: alienUnconsciousImg,
     dimensions: [0, 0, 33, 33]
 })
 renderable(alien);
 actionQueueAble(alien);
 brawlable(alien, 3);
 brawlAI(alien);
-healthable(alien, 20);
 selectable(alien, function() {
-    return true; //!!mousePressedPerson;
+    return !!mousePressedPerson;
 });
+healthable(alien, 5);
 
-var entities = [];
+var alien2 = new Entity();
+_.extend(alien2, {
+    name: "Alien2",
+    enemy: true,
+    img: alienImg,
+    imgBrawling: alienBrawlImg,
+    imgPunching: alienBrawlPunchingImg,
+    imgUnconscious: alienUnconsciousImg,
+    dimensions: [0, 0, 33, 33]
+})
+renderable(alien2);
+actionQueueAble(alien2);
+brawlable(alien2, 3);
+brawlAI(alien2);
+selectable(alien2, function() {
+    return !!mousePressedPerson;
+});
+healthable(alien2, 20);
+
+var GameObject = function(tick, visualTick, draw) {
+    this.tick = tick || function() {};
+    this.visualTick = visualTick || function() {};
+    this.draw = draw || function() {};
+}
+
+var gameObjects = [];
 
 // Ship
 var Room = function(name, dimensions) {
@@ -475,77 +472,6 @@ var Door = function(from, to) {
     this.connections = [from, to];
 };
 
-/*var alienCounter = 0;
-var Alien = function() {
-    this.dimensions = [0, 0, 33, 33];
-    this.name = "Alien" + alienCounter;
-    alienCounter++;
-    this.hp = 30;
-    this.hidden = false;
-    this.type = ALIEN_STATUS;
-    this.markedForRemoval = false;
-    this.action = null,
-    this.draw = function() {
-        var img = alienImg;
-        if (this.action && this.action.name === "Brawl") img = alienBrawlImg;
-        context.drawImage(img, this.dimensions[0], this.dimensions[1]);
-        context.fillStyle = "black";
-        context.fillText(this.name, this.dimensions[0], this.dimensions[1]-1);
-    },
-    this.tick = function() {
-        if (this.hp <= 0) {
-            this.markedForRemoval = true;
-        } else {
-            if (this.action) {
-                this.action.event(this);
-                return;
-            }
-            if (findItem(this).crew.length === 0) return;
-
-            var alienRoom = findItem(this);
-
-            var amountBrawling = _.filter(findItem(this).crew, function(person) {
-                return (isBrawling(person, this));
-            }.bind(this));
-
-
-            var eligble = _.filter(findItem(this).crew, function(person) {
-                return canBeHit(person);
-            });
-
-            if (eligble.length < 1) {
-                return;
-            }
-            this.action = {
-                target: null,
-                name: "Brawl",
-                idx: 180,
-                event: function(parent) {
-                    if (!(this.target && this.target.conscious && findItem(parent) === findPerson(this.target))) {
-                        parent.action = null;
-                        return;
-                    }
-                    if (this.idx < 0) {
-                        this.target.hurt(parent)
-                        this.idx = 180
-                    } else {
-                        this.idx -= 1;
-                    }
-                }
-            }
-            if (amountBrawling.length === 0) {
-                var randomidx = Math.floor(Math.random() * eligble.length)
-                this.action.target = eligble[randomidx];
-            } else if (amountBrawling.length === 1) {
-                this.action.target = amountBrawling[0];
-            } else {
-                var randomidx = Math.floor(Math.random() * amountBrawling.length)
-                this.action.target = amountBrawling[randomidx];                
-            }
-        }
-    }
-}*/
-
 var timesTwo = function(array) {
     return _.map(array, function(item) {
         return item * 2
@@ -566,6 +492,7 @@ bridge.entities.push(player);
 bridge.entities.push(medic);
 
 kitchen.entities.push(alien);
+bedroom.entities.push(alien2);
 
 var crew = [player, medic] //  , pilot, engineer, warrior];
 
@@ -844,18 +771,18 @@ var visualTick = function() {
         room.visualTick();
     });
 
-    _.each(entities, function(object) {
+    _.each(gameObjects, function(object) {
         object.visualTick();
     });
 
-    entities = _.filter(entities, function(object) {
+    gameObjects = _.filter(gameObjects, function(object) {
         return !object.markedForRemoval;
     });
 }
 
 var gameTick = function() {
 
-    _.each(entities, function(object) {
+    _.each(gameObjects, function(object) {
         object.tick();
     });
     
@@ -873,6 +800,10 @@ var gameTick = function() {
         room.items = _.filter(room.entities, function(entity) {
             return !(entity.markedForRemoval === true);
         });
+    });
+
+    gameObjects = _.filter(gameObjects, function(object) {
+        return !object.markedForRemoval;
     });
 }
 
@@ -892,14 +823,6 @@ var render = function() {
 
             _.each(room.entities, function(entity, idx) {
                 entity.draw && entity.draw();
-
-                /*item.draw();
-                if (item === mousePressedPerson) {
-                    context.beginPath();
-                    context.strokeStyle = "#f00";
-                    context.rect(item.dimensions[0], item.dimensions[1], 33, 33);
-                    context.stroke();
-                }*/
             })
         });
 
@@ -918,7 +841,7 @@ var render = function() {
         context.fillText("PAUSED", 430, 30);
     }
 
-    _.each(entities, function(object) {
+    _.each(gameObjects, function(object) {
         object.draw();
     });
 }
