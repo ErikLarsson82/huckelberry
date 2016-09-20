@@ -19,6 +19,9 @@ var context = canvas.getContext("2d");
 var testImg = new Image();
 testImg.src = "test.png";
 
+var crateImg = new Image();
+crateImg.src = "crate.png";
+
 var profile1 = new Image();
 profile1.src = "profile1.png";
 
@@ -58,6 +61,10 @@ var mousePressedPerson = null;
 
 var detectHits = function(list, e) {
     return _.filter(list, function(item) {
+        if (!item.dimensions) {
+            console.error("Dimensions not found on item");
+            return false;  
+        } 
         return (e.x > item.dimensions[0] &&
             e.x < item.dimensions[0] + item.dimensions[2] &&
             e.y > item.dimensions[1] &&
@@ -66,6 +73,8 @@ var detectHits = function(list, e) {
 }
 
 document.addEventListener("mousemove", function(e) {
+    if (inventoryTransfer.visible) return;
+
     _.each(ship.rooms, function(room) {
         room.hover = false;
         _.each(room.entities, function(entity) {
@@ -81,9 +90,26 @@ document.addEventListener("mousemove", function(e) {
     _.each(hits, function(hit) {
         hit.hover = hit.hoverCondition();
     });
+
+    /*var hitsWithConditions = _.filter(hits, function(hit) {
+        var hitCon = hit.hoverCondition();
+        if (hitCon) {
+            toolTip.visible = true;
+            toolTip.x = hit.dimensions[0] + 50;
+            toolTip.y = hit.dimensions[1] + 50;
+        }
+        hit.hover = hitCon;
+        return hitCon;
+    });
+
+    if (hitsWithConditions.length === 0) {
+        toolTip.visible = false;
+        toolTip.x = 0;
+        toolTip.y = 0;
+    }*/
 });
 
-document.addEventListener("mousedown", function(e) {
+function genericMousePress(e) {
     if (e.button === 0) {
         var hits = detectHits(crew, e);
         
@@ -113,9 +139,20 @@ document.addEventListener("mousedown", function(e) {
                     mousePressedPerson.isBrawlable &&  mousePressedPerson.addToQueue(mousePressedPerson.generateBrawlAction(hit))
                 } else if (hit.friend) {
                     console.log('High five');
+                } else if (mousePressedPerson.isInventoryable && hit.isInventoryable) {
+                    inventoryTransfer.transfer(player, crate);
                 }
             });
         }
+    }
+    
+}
+
+document.addEventListener("mousedown", function(e) {
+    if (inventoryTransfer.visible) {
+        inventoryTransfer.mouseEvent(e);
+    } else {
+        genericMousePress(e);
     }
 });
 
@@ -298,7 +335,12 @@ function brawlable(object, punchingPower) {
                         this.punching = false;
                         return false;    
                     } else {
-                        whom.hurt(this.punchingPower);
+                        var dmg = this.punchingPower;
+                        debugger;
+                        if (this.isInventoryable) {
+                            dmg = _.max(this.inventory, function(item){ return item.dmg; }).dmg;
+                        }
+                        whom.hurt(dmg);
                         object.punching = true;
                     }
                 } else if (counter < 0) {
@@ -307,6 +349,27 @@ function brawlable(object, punchingPower) {
                 }
                 return true;
             }.bind(object)
+        }
+    }
+}
+
+function inventoryable(object) {
+    object.isInventoryable = true;
+    object.inventory = [];
+
+    var storeDraw = object.draw || function() {}
+    object.draw = function() {
+        storeDraw.call(object);
+
+        if (mousePressedPerson === object) {
+            context.fillStyle = "gray";
+            context.fillRect(800, 600, 100, 100)
+            context.fillStyle = "white";
+            context.fillText("Inventory:", 810, 620);
+
+            _.each(object.inventory, function(item, idx) {
+                context.fillText(item.name, 810, 620 + 20 + (idx * 20));                
+            })
         }
     }
 }
@@ -382,7 +445,9 @@ selectable(player, function() { return true; });
 walkable(player);
 actionQueueAble(player);
 brawlable(player, 3);
+inventoryable(player);
 healthable(player, 1);
+
 
 var medic = new Entity();
 _.extend(medic, {
@@ -404,6 +469,7 @@ actionQueueAble(medic);
 brawlable(medic, 2);
 healthable(medic, 20);
 
+
 var alien = new Entity();
 _.extend(alien, {
     name: "Alien",
@@ -422,6 +488,7 @@ selectable(alien, function() {
     return !!mousePressedPerson;
 });
 healthable(alien, 5);
+
 
 var alien2 = new Entity();
 _.extend(alien2, {
@@ -442,6 +509,38 @@ selectable(alien2, function() {
 });
 healthable(alien2, 20);
 
+
+var crate = new Entity();
+_.extend(crate, {
+    name: "Crate",
+    img: crateImg,
+    dimensions: [0, 0, 33, 33]
+})
+renderable(crate);
+selectable(crate, function() {
+    return !!mousePressedPerson;
+});
+inventoryable(crate);
+
+
+var Item = function() {};
+
+var pistol = new Item();
+pistol.name = "Pistol";
+pistol.dmg = 10;
+
+var lazergun = new Item();
+lazergun.name = "Lazer Gun";
+lazergun.dmg = 20;
+
+var baseballbat = new Item();
+baseballbat.name = "Baseball bat";
+baseballbat.dmg = 5;
+
+player.inventory.push(pistol);
+crate.inventory.push(lazergun);
+crate.inventory.push(baseballbat);
+
 var GameObject = function(tick, visualTick, draw) {
     this.tick = tick || function() {};
     this.visualTick = visualTick || function() {};
@@ -449,6 +548,105 @@ var GameObject = function(tick, visualTick, draw) {
 }
 
 var gameObjects = [];
+
+var inventoryTransfer = new GameObject();
+inventoryTransfer.name = "InventoryTransfer";
+inventoryTransfer.visible = false;
+inventoryTransfer.transfer = function(from, to) {
+    this.visible = true;
+    this.from = from;
+    this.to = to;
+}
+inventoryTransfer.mouseEvent = function(e) {
+    var closeButton = {
+        dimensions: [784, 114, 54, 54],
+        action: function() {
+            inventoryTransfer.visible = false;    
+        }
+    }
+    var elements = [];
+    function generateButtons(from, to, offset) {
+        _.each(from.inventory, function(item, idx) {
+            elements.push({
+                dimensions: [270 + 8 + offset, 200 + (idx * 20), 100, 17],
+                action: function() {
+                    from.inventory = _.filter(from.inventory, function(item2) {
+                        return item !== item2;
+                    });
+                    to.inventory.push(item);
+                }
+            });
+        });
+    }
+    generateButtons(inventoryTransfer.from, inventoryTransfer.to, 0);
+    generateButtons(inventoryTransfer.to, inventoryTransfer.from, 253);
+
+    elements.push(closeButton);
+    var hits = detectHits(elements, e);
+    
+    if (hits.length > 0) {
+        hits[0].action();
+    }
+}
+
+inventoryTransfer.draw = function() {
+    if (!this.visible) return;
+
+    context.fillStyle = "rgba(0,0,0,.8)";
+    context.fillRect(0, 0, 1024, 768);
+    context.fillStyle = "#aaaaaa";
+    context.fillRect(244, 170, 533, 395);
+    context.fillStyle = "#333333";
+    context.fillRect(258, 186, 247, 363);
+    context.fillRect(518, 186, 247, 363);
+
+    context.fillStyle = "white";
+    context.font = "12px Arial";
+    
+    if (this.from.inventory.length > 0) {
+        _.each(this.from.inventory, function(item, idx) {
+            context.fillStyle = "black";
+            context.fillRect(270 + 8, 200 + (idx * 20), 100, 17);
+            context.fillStyle = "white";
+            context.fillText(item.name, 270 + 8, 200 + 12 + (idx * 20));
+        })
+    } else {
+        context.fillText("Empty", 270, 200);
+    }
+
+    if (this.to.inventory.length > 0) {
+        _.each(this.to.inventory, function(item, idx) {
+            context.fillStyle = "black";
+            context.fillRect(520 + 8, 200 + (idx * 20), 100, 17);
+            context.fillStyle = "white";
+            context.fillText(item.name, 520 + 8, 200 + 12 + (idx * 20));
+        })
+    } else {
+        context.fillText("Empty", 520, 200);
+    }
+
+    context.fillStyle = "red";
+    context.fillRect(784, 114, 54, 54);
+}
+
+gameObjects.push(inventoryTransfer);
+
+var toolTip = new GameObject();
+toolTip.name = "Tooltip";
+toolTip.x = 50;
+toolTip.y = 50;
+toolTip.visible = false;
+toolTip.action = "-";
+toolTip.draw = function() {
+    if (!this.visible) return;
+
+    context.fillStyle = "#222222";
+    context.fillRect(this.x, this.y, 100, 30);
+    context.fillStyle = "white";
+    context.font = "12px Arial";
+    context.fillText(this.action, this.x + 8, this.y + 20);
+}
+gameObjects.push(toolTip);
 
 // Ship
 var Room = function(name, dimensions) {
@@ -490,6 +688,7 @@ var escapePod2 = new Room("Escape pod 2", timesTwo([403, 34, 43, 43]));
 
 bridge.entities.push(player);
 bridge.entities.push(medic);
+bridge.entities.push(crate);
 
 kitchen.entities.push(alien);
 bedroom.entities.push(alien2);
@@ -539,94 +738,6 @@ var ship = {
     rooms: rooms,
     doors: doors
 }
-
-/*var move = function(who, where) {
-    var action = {
-        name: "Move",
-        shortName: "M",
-        duration: (who.firemanCarry) ? 6 : 3,
-        event: function(duration) {
-            if (duration === 1) {
-                var result = executeMove(who, where);
-
-                if (who !== player) {
-                    
-                    var items = _.filter(where.items, function(item) {
-                        return (item instanceof Alien || item instanceof Goo) && (item.hidden === false);
-                    });
-                    _.each(items, function(item) {    
-                        who.addInformation(new Information(item.type, who, findPerson(who), item));
-                    });
-                }
-
-                return result;
-            }
-            return true;
-        }.bind(who)
-    }
-    who.queue.push(action);
-    return "Move scheduled";
-}*/
-
-var moveRoute = function(who, where) {
-    /*var route = findRoute(findPerson(who), where);
-    if (route) {
-        route.shift();
-        _.each(route, function(stop) {
-            move(who, stop);
-        });
-        return "Route scheduled with " + (route.length - 1) + ' stops';
-    } else {
-        return "Route failed"
-    }*/
-}
-
-/*var investigate = function(who) {
-    if (!who) {
-        console.log('Who?');
-        return false;
-    }
-    if (who.firemanCarry) return who.name + " cannot investigate when carrying someone";
-
-    var action = {
-        name: "Investigate",
-        shortName: "I",
-        duration: 4,
-        event: function(duration) {
-            var room = findPerson(who);
-            if (!room) {
-                console.log('[[[ Cannot find ' + who.name + ' in any room ]]]');
-                return false;
-            } else if (duration === 0) {
-                var foundItems = revealHiddenItemsInRoom(room);
-                if (foundItems.length === 0) {
-                    if (findPerson(player) === room) {
-                        logIfApplicable(who.name + ': Investigation complete, nothing new found', findPerson(player));
-                    } else {
-                        who.iShouldReportThis = true;
-                        who.addInformation(new Information(ROOM_CLEAR_STATUS, who, findPerson(who), ""));
-                    }
-                } else {
-                    if (findPerson(player) === room) {
-                        var items = '';
-                        _.each(foundItems, function(item) {
-                            items += item.name + ', ';
-                        });
-                        logIfApplicable(who.name + ' are done with investigation, found ' + items, findPerson(player));
-                    } else {
-                        _.each(foundItems, function(item) {
-                            who.iShouldReportThis = true;
-                            who.addInformation(new Information(item.type, who, findPerson(who), item));
-                        })
-                    }
-                }
-            }
-            return true;
-        }.bind(who)
-    }
-    who.queue.push(action);
-    return "Investigation added to queue";
-}*/
 
 var removeQueuedAction = function(who) {
     who.queue.shift();
@@ -718,6 +829,10 @@ var findRoute = function(from, to) {
 
 var canBeHit = function(who) {
     return (who.conscious === true && who.hp > 1);
+}
+
+var isInSameRoom = function(item1, item2) {
+    return findInWhatRoom(item1) === findInWhatRoom(item2);
 }
 
 var isBrawling = function(who, what) {
