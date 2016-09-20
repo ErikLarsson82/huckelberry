@@ -37,6 +37,15 @@ alienBrawlPunchingImg.src = "alien_brawl_punching.png";
 var alienUnconsciousImg = new Image();
 alienUnconsciousImg.src = "alien_unconscious.png";
 
+var banditImg = new Image();
+banditImg.src = "bandit.png";
+var banditBrawlImg = new Image();
+banditBrawlImg.src = "bandit_brawl.png";
+var banditBrawlPunchingImg = new Image();
+banditBrawlPunchingImg.src = "bandit_brawl_punching.png";
+var banditUnconsciousImg = new Image();
+banditUnconsciousImg.src = "bandit_unconsious.png";
+
 var linkImg = new Image();
 linkImg.src = "link.png";
 var linkWalkingImg = new Image();
@@ -138,7 +147,13 @@ function genericMousePress(e) {
                 } else if (hit.enemy) {
                     mousePressedPerson.isBrawlable &&  mousePressedPerson.addToQueue(mousePressedPerson.generateBrawlAction(hit))
                 } else if (hit.friend) {
-                    console.log('High five');
+                    if (hit.isConsciousable) {
+                        hit.unconsius = false;
+                        hit.health = 2;
+                        var x = hit.dimensions[0] + Math.floor(Math.random() * 5);
+                        var y = hit.dimensions[1] - 8 - Math.floor(Math.random() * 10);
+                        gameObjects.push(new DamageTick(x, y, 2, "green"));
+                    }
                 } else if (mousePressedPerson.isInventoryable && hit.isInventoryable) {
                     inventoryTransfer.transfer(mousePressedPerson, hit);
                 }
@@ -157,7 +172,6 @@ document.addEventListener("mousedown", function(e) {
 });
 
 document.addEventListener("keydown", function(e) {
-    console.log(e.keyCode);
     if (e.code === "Space") {
         if (HALTED) {
             HALTED = false;
@@ -186,9 +200,10 @@ var seed = (DEBUG_SEED) ? DEBUG_SEED : randomSeed;
 console.log("Using seed " + seed);
 Math.seedrandom(seed);
 
-var DamageTick = function(x, y, amount) {
+var DamageTick = function(x, y, amount, color) {
     var ticker = new GameObject();
     ticker.time = 180;
+    ticker.color = color || "red";
     ticker.x = x + Math.floor(Math.random() * 10);
     ticker.y = y + Math.floor(Math.random() * 10);
     ticker.markedForRemoval = false;
@@ -203,7 +218,7 @@ var DamageTick = function(x, y, amount) {
         context.fillStyle = "black";
         context.fillText(amount, this.x, this.y - 1 - (180 - this.time) / 5);
 
-        context.fillStyle = "red";
+        context.fillStyle = this.color;
         context.fillText(amount, this.x -1, this.y - 1 - (180 - this.time) / 5);
     }
     return ticker;
@@ -336,7 +351,7 @@ function brawlable(object, punchingPower) {
                         return false;    
                     } else {
                         var dmg = this.punchingPower;
-                        if (this.isInventoryable) {
+                        if (this.isInventoryable && this.inventory.length > 0) {
                             dmg = _.max(this.inventory, function(item){ return item.dmg; }).dmg;
                         }
                         whom.hurt(dmg);
@@ -466,47 +481,9 @@ selectable(medic, function() { return true; });
 walkable(medic);
 actionQueueAble(medic);
 brawlable(medic, 2);
+inventoryable(medic);
 healthable(medic, 20);
 
-
-/*var alien = new Entity();
-_.extend(alien, {
-    name: "Alien",
-    enemy: true,
-    img: alienImg,
-    imgBrawling: alienBrawlImg,
-    imgPunching: alienBrawlPunchingImg,
-    imgUnconscious: alienUnconsciousImg,
-    dimensions: [0, 0, 33, 33]
-})
-renderable(alien);
-actionQueueAble(alien);
-brawlable(alien, 3);
-brawlAI(alien);
-selectable(alien, function() {
-    return !!mousePressedPerson;
-});
-healthable(alien, 5);
-
-
-var alien2 = new Entity();
-_.extend(alien2, {
-    name: "Alien2",
-    enemy: true,
-    img: alienImg,
-    imgBrawling: alienBrawlImg,
-    imgPunching: alienBrawlPunchingImg,
-    imgUnconscious: alienUnconsciousImg,
-    dimensions: [0, 0, 33, 33]
-})
-renderable(alien2);
-actionQueueAble(alien2);
-brawlable(alien2, 3);
-brawlAI(alien2);
-selectable(alien2, function() {
-    return !!mousePressedPerson;
-});
-healthable(alien2, 20);*/
 
 var crates = [];
 _.each(new Array(3), function(unused, idx) {
@@ -750,6 +727,35 @@ var placeAliensRandomly = function() {
 
         var roomIndex = Math.floor(Math.random() * rooms.length);
         rooms[roomIndex].entities.push(alien);
+    })
+}
+
+var placeBanditsRandomly = function() {
+    var amount = Math.floor(Math.random() * 3);
+    console.log('placing ' + amount + " bandits");
+    var roomIndex = Math.floor(Math.random() * rooms.length);
+
+    _.each(new Array(amount), function(unused, idx) {
+        var bandit = new Entity();
+        _.extend(bandit, {
+            name: "Bandit" + idx,
+            enemy: true,
+            img: banditImg,
+            imgBrawling: banditBrawlImg,
+            imgPunching: banditBrawlPunchingImg,
+            imgUnconscious: banditUnconsciousImg,
+            dimensions: [0, 0, 33, 33]
+        })
+        renderable(bandit);
+        actionQueueAble(bandit);
+        brawlable(bandit, 4);
+        brawlAI(bandit);
+        selectable(bandit, function() {
+            return !!mousePressedPerson;
+        });
+        healthable(bandit, 10);
+
+        rooms[roomIndex].entities.push(bandit);
     })
 }
 
@@ -1032,6 +1038,8 @@ if (SCENARIO !== false) {
     placeCrewRandomly();
 
     placeAliensRandomly();
+
+    placeBanditsRandomly();
 
     placeCratesRandomly();
 
