@@ -146,15 +146,15 @@ function genericMousePress(e) {
                     mousePressedPerson.isWalkable && mousePressedPerson.addToQueue(mousePressedPerson.generateWalkAction(hit))
                 } else if (hit.enemy) {
                     mousePressedPerson.isBrawlable &&  mousePressedPerson.addToQueue(mousePressedPerson.generateBrawlAction(hit))
-                } else if (hit.friend) {
-                    if (hit.isConsciousable) {
+                } else if (hit.friend && isInSameRoom(mousePressedPerson, hit)) {
+                    if (hit.isConsciousable && hit.unconsius) {
                         hit.unconsius = false;
                         hit.health = 2;
                         var x = hit.dimensions[0] + Math.floor(Math.random() * 5);
                         var y = hit.dimensions[1] - 8 - Math.floor(Math.random() * 10);
                         gameObjects.push(new DamageTick(x, y, 2, "green"));
                     }
-                } else if (mousePressedPerson.isInventoryable && hit.isInventoryable) {
+                } else if (mousePressedPerson.isInventoryable && hit.isInventoryable && isInSameRoom(mousePressedPerson, hit)) {
                     inventoryTransfer.transfer(mousePressedPerson, hit);
                 }
             });
@@ -348,7 +348,7 @@ function brawlable(object, punchingPower) {
                     if (findInWhatRoom(this) !== findInWhatRoom(whom) || whom.unconsius) {
                         this.brawling = false;
                         this.punching = false;
-                        return false;    
+                        return false;
                     } else {
                         var dmg = this.punchingPower;
                         if (this.isInventoryable && this.inventory.length > 0) {
