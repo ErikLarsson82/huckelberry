@@ -140,7 +140,7 @@ function genericMousePress(e) {
                 } else if (hit.friend) {
                     console.log('High five');
                 } else if (mousePressedPerson.isInventoryable && hit.isInventoryable) {
-                    inventoryTransfer.transfer(player, crate);
+                    inventoryTransfer.transfer(mousePressedPerson, hit);
                 }
             });
         }
@@ -274,7 +274,7 @@ function walkable(object) {
             where: where,
             who: object,
             name: "Move",
-            duration: 120,
+            duration: 95,
             abort: function() {
                 this.walking = false;
             },
@@ -336,7 +336,6 @@ function brawlable(object, punchingPower) {
                         return false;    
                     } else {
                         var dmg = this.punchingPower;
-                        debugger;
                         if (this.isInventoryable) {
                             dmg = _.max(this.inventory, function(item){ return item.dmg; }).dmg;
                         }
@@ -470,7 +469,7 @@ brawlable(medic, 2);
 healthable(medic, 20);
 
 
-var alien = new Entity();
+/*var alien = new Entity();
 _.extend(alien, {
     name: "Alien",
     enemy: true,
@@ -507,21 +506,24 @@ brawlAI(alien2);
 selectable(alien2, function() {
     return !!mousePressedPerson;
 });
-healthable(alien2, 20);
+healthable(alien2, 20);*/
 
+var crates = [];
+_.each(new Array(3), function(unused, idx) {
+    var crate = new Entity();
+    _.extend(crate, {
+        name: "Crate " + idx,
+        img: crateImg,
+        dimensions: [0, 0, 33, 33]
+    })
+    renderable(crate);
+    selectable(crate, function() {
+        return !!mousePressedPerson;
+    });
+    inventoryable(crate);
 
-var crate = new Entity();
-_.extend(crate, {
-    name: "Crate",
-    img: crateImg,
-    dimensions: [0, 0, 33, 33]
+    crates.push(crate);
 })
-renderable(crate);
-selectable(crate, function() {
-    return !!mousePressedPerson;
-});
-inventoryable(crate);
-
 
 var Item = function() {};
 
@@ -537,9 +539,7 @@ var baseballbat = new Item();
 baseballbat.name = "Baseball bat";
 baseballbat.dmg = 5;
 
-player.inventory.push(pistol);
-crate.inventory.push(lazergun);
-crate.inventory.push(baseballbat);
+var items = [pistol, lazergun, baseballbat];
 
 var GameObject = function(tick, visualTick, draw) {
     this.tick = tick || function() {};
@@ -686,13 +686,6 @@ var shieldroom = new Room("Shieldroom", timesTwo([251, 37, 80, 73]));
 var escapePod1 = new Room("Escape pod 1", timesTwo([66, 33, 43, 43]));
 var escapePod2 = new Room("Escape pod 2", timesTwo([403, 34, 43, 43]));
 
-bridge.entities.push(player);
-bridge.entities.push(medic);
-bridge.entities.push(crate);
-
-kitchen.entities.push(alien);
-bedroom.entities.push(alien2);
-
 var crew = [player, medic] //  , pilot, engineer, warrior];
 
 var door1 = new Door(bedroom, kitchen);
@@ -728,9 +721,56 @@ _.each(rooms, function(room) {
 var placeCrewRandomly = function() {
     _.each(crew, function(person) {
         var index = Math.floor(Math.random() * rooms.length);
-        rooms[index].items.push(person);
+        rooms[index].entities.push(person);
     })
 }
+
+var placeAliensRandomly = function() {
+    var amount = Math.floor(Math.random() * 4);
+    console.log('placing ' + amount + " aliens");
+    _.each(new Array(amount), function(unused, idx) {
+        var alien = new Entity();
+        _.extend(alien, {
+            name: "Alien" + idx,
+            enemy: true,
+            img: alienImg,
+            imgBrawling: alienBrawlImg,
+            imgPunching: alienBrawlPunchingImg,
+            imgUnconscious: alienUnconsciousImg,
+            dimensions: [0, 0, 33, 33]
+        })
+        renderable(alien);
+        actionQueueAble(alien);
+        brawlable(alien, 3);
+        brawlAI(alien);
+        selectable(alien, function() {
+            return !!mousePressedPerson;
+        });
+        healthable(alien, 5);
+
+        var roomIndex = Math.floor(Math.random() * rooms.length);
+        rooms[roomIndex].entities.push(alien);
+    })
+}
+
+var placeCratesRandomly = function() {
+    _.each(crates, function(crate) {
+        var index = Math.floor(Math.random() * rooms.length);
+        rooms[index].entities.push(crate);
+    });
+};
+
+var placeItemsRandomly = function() {
+    var inventoryCrew = _.filter(crew, function(person) {
+        return person.isInventoryable;
+    })
+    var peopleAndCrates = inventoryCrew.concat(crates);
+    _.each(items, function(item) {
+        var index = Math.floor(Math.random() * peopleAndCrates.length);
+        peopleAndCrates[index].inventory.push(item);
+        console.log('placing ' + item.name + " at " + peopleAndCrates[index].name);
+    });
+};
 
 var doors = [door1, door2, door3, door4, door5, door6, door7, door8];
 
@@ -988,5 +1028,26 @@ if (SCENARIO !== false) {
         break;
     }
 } else {
+
+    placeCrewRandomly();
+
+    placeAliensRandomly();
+
+    placeCratesRandomly();
+
+    placeItemsRandomly();
+    //bridge.entities.push(player);
+    //bridge.entities.push(medic);
+    //bridge.entities.push(crate);
+    //storageroom.entities.push(crate2);
+    //engineroom.entities.push(crate3);
+
+    //kitchen.entities.push(alien);
+    //bedroom.entities.push(alien2);
+
+    //player.inventory.push(pistol);
+    //crate.inventory.push(lazergun);
+    //crate.inventory.push(baseballbat);
+
     gameTick();
 }
