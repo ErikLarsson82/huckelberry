@@ -19,8 +19,22 @@ var INFINITE = 99999999999;
 var canvas = document.getElementById('canvas');
 var context = canvas.getContext("2d");
 
-var testImg = new Image();
-testImg.src = "test.png";
+var shipImg = new Image();
+shipImg.src = "ship.png";
+
+var door_unlocked_closed_vertical = new Image();
+door_unlocked_closed_vertical.src = "door_unlocked_closed_vertical.png";
+var door_unlocked_closed_horizontal = new Image();
+door_unlocked_closed_horizontal.src = "door_unlocked_closed_horizontal.png";
+var door_locked_closed_vertical = new Image();
+door_locked_closed_vertical.src = "door_locked_closed_vertical.png";
+var door_locked_closed_horizontal = new Image();
+door_locked_closed_horizontal.src = "door_locked_closed_horizontal.png";
+var door_open_vertical = new Image();
+door_open_vertical.src = "door_open_vertical.png";
+var door_open_horizontal = new Image();
+door_open_horizontal.src = "door_open_horizontal.png";
+
 
 var crateImg = new Image();
 crateImg.src = "crate.png";
@@ -69,7 +83,7 @@ var linkPurpleWalkingImg = new Image();
 linkPurpleWalkingImg.src = "link_purple_walking.png";
 
 canvas.oncontextmenu = function() {
-   return false; 
+   return false;
 }
 
 var mousePressedPerson = null;
@@ -78,8 +92,8 @@ var detectHits = function(list, e) {
     return _.filter(list, function(item) {
         if (!item.dimensions) {
             console.error("Dimensions not found on item");
-            return false;  
-        } 
+            return false;
+        }
         return (e.x > item.dimensions[0] &&
             e.x < item.dimensions[0] + item.dimensions[2] &&
             e.y > item.dimensions[1] &&
@@ -129,10 +143,10 @@ document.addEventListener("mousemove", function(e) {
 function genericMousePress(e) {
     if (e.button === 0) {
         var hits = detectHits(crew, e);
-        
+
         function reset() {
             if (mousePressedPerson) mousePressedPerson.selected = false;
-        } 
+        }
         if (hits.length > 0) {
             reset();
             mousePressedPerson = hits[0];
@@ -175,7 +189,7 @@ function genericMousePress(e) {
             });
         }
     }
-    
+
 }
 
 document.addEventListener("mousedown", function(e) {
@@ -196,7 +210,7 @@ document.addEventListener("keydown", function(e) {
         } else {
             HALTED = true;
             console.log("Simulation paused!");
-        }   
+        }
     } else if (e.keyCode === 68) {
         //D
         /*if (mousePressedPerson) {
@@ -313,9 +327,17 @@ function walkable(object) {
                 this.walking = false;
             },
             event: function(duration) {
+                var door = findDoor(findInWhatRoom(object), where);
+                if (isLegalMove(object, where) && !door.locked) {
+                    door.open = true;
+                } else {
+                    door.open = false;
+                    return false;
+                }
                 this.walking = true;
                 if (duration === 0) {
                     this.walking = false;
+                    door.open = false;
                     return executeMove(this, where);
                 }
                 return true;
@@ -404,7 +426,7 @@ function inventoryable(object) {
             _.each(object.inventory, function(item, idx) {
                 var append = "";
                 if (idx === 0) append = " [ACTIVE]";
-                context.fillText(item.name + append, 810, 570 + 20 + (idx * 20));                
+                context.fillText(item.name + append, 810, 570 + 20 + (idx * 20));
             })
         }
     }
@@ -588,11 +610,11 @@ scanner.mouseEvent = function(e) {
     var closeButton = {
         dimensions: [784, 114, 54, 54],
         action: function() {
-            scanner.visible = false;    
+            scanner.visible = false;
         }
     }
     var hits = detectHits([closeButton], e);
-    
+
     if (hits.length > 0) {
         hits[0].action();
     }
@@ -631,7 +653,7 @@ inventoryTransfer.mouseEvent = function(e) {
     var closeButton = {
         dimensions: [784, 114, 54, 54],
         action: function() {
-            inventoryTransfer.visible = false;    
+            inventoryTransfer.visible = false;
         }
     }
     var elements = [];
@@ -653,7 +675,7 @@ inventoryTransfer.mouseEvent = function(e) {
 
     elements.push(closeButton);
     var hits = detectHits(elements, e);
-    
+
     if (hits.length > 0) {
         hits[0].action();
     }
@@ -672,7 +694,7 @@ inventoryTransfer.draw = function() {
 
     context.fillStyle = "white";
     context.font = "12px Arial";
-    
+
     if (this.from.inventory.length > 0) {
         _.each(this.from.inventory, function(item, idx) {
             context.fillStyle = "black";
@@ -736,8 +758,41 @@ var Room = function(name, dimensions) {
     });
 }
 
-var Door = function(from, to) {
+var Door = function(from, to, orientation, x, y, locked, open) {
     this.connections = [from, to];
+    this.orientation = orientation;
+    this.x = x || 0;
+    this.y = y || 0;
+    this.locked = locked;
+    this.open = open;
+
+    var door = {
+        true: { // door is open
+            true: {
+                true: door_open_vertical,
+                false: door_open_horizontal
+            },
+            false: {
+                true: door_open_vertical,
+                false: door_open_horizontal
+            }
+        },
+        false: { // closed
+            true: { //locked
+                true: door_locked_closed_vertical,
+                false: door_locked_closed_horizontal
+            },
+            false: { //unlocked
+                true: door_unlocked_closed_vertical,
+                false: door_unlocked_closed_horizontal
+            }
+        }
+    }
+
+    this.draw = function() {
+
+        context.drawImage(door[this.open][this.locked][this.orientation], x, y);
+    }
 };
 
 var timesTwo = function(array) {
@@ -758,14 +813,14 @@ var escapePod2 = new Room("Escape pod 2", timesTwo([403, 34, 43, 43]));
 
 var crew = [player, medic] //  , pilot, engineer, warrior];
 
-var door1 = new Door(bedroom, kitchen);
-var door2 = new Door(kitchen, bridge);
-var door3 = new Door(engineroom, bridge);
-var door4 = new Door(engineroom, shieldroom);
-var door5 = new Door(bridge, medbay);
-var door6 = new Door(medbay, storageroom);
-var door7 = new Door(kitchen, escapePod1);
-var door8 = new Door(medbay, escapePod2);
+var door1 = new Door(bedroom, kitchen, false, 112, 324, false, false);
+var door2 = new Door(kitchen, bridge, true, 272, 268, false, false);
+var door3 = new Door(engineroom, bridge, false, 352, 204, false, false);
+var door4 = new Door(engineroom, shieldroom, true, 478, 156, false, false);
+var door5 = new Door(bridge, medbay, true, 710, 284, false, false);
+var door6 = new Door(medbay, storageroom, false, 786, 336, false, false);
+var door7 = new Door(kitchen, escapePod1, false, -100, -100, false, false);
+var door8 = new Door(medbay, escapePod2, false, -100, -100, false, false);
 
 bridge.connections = [engineroom, kitchen, medbay];
 medbay.connections = [escapePod2, storageroom, bridge];
@@ -782,7 +837,7 @@ var rooms = [escapePod1, bedroom, kitchen, bridge, engineroom, shieldroom, medba
 _.each(rooms, function(room) {
     tickable(room, function() {
         var numberPerRow = 2;
-    
+
         if (this.dimensions[2] > 165) {
             numberPerRow = 4;
         }
@@ -791,7 +846,7 @@ _.each(rooms, function(room) {
         }
         _.each(this.entities, function(entity, idx) {
             entity.dimensions[0] = room.dimensions[0] + 30 + (45 * (idx % numberPerRow));
-            entity.dimensions[1] = room.dimensions[1] + 30 + (45 * Math.floor(idx / numberPerRow)); 
+            entity.dimensions[1] = room.dimensions[1] + 30 + (45 * Math.floor(idx / numberPerRow));
         });
     });
 })
@@ -959,9 +1014,10 @@ var findInWhatRoomByInstanceOf = function(instance) {
     return (items.length > 0) ? items : false;
 }
 
-var modifyAllDoorsStatus = function(status) {
+var modifyAllDoorsStatus = function(locked, open) {
     _.each(doors, function(door) {
-        door.status = status;
+        door.locked = locked;
+        door.open = open;
     })
 }
 
@@ -970,17 +1026,17 @@ var findRoute = function(from, to) {
     var visitedRooms = [];
     var routesLeft = true;
     var tries = 0;
-    
+
     var tryAllRooms = function(currentRoom) {
         tries = tries + 1;
         if (tries > 50) {
             console.log('failsafe in recursive algorithm activated');
             return false;
         }
-        
+
         visitedRooms.push(currentRoom);
         route.push(currentRoom);
-        
+
         if (currentRoom === to) {
             return true;
         }
@@ -1040,7 +1096,7 @@ var isLegalMove = function(who, where) {
             }
         })
     });
-    return legal;
+    return legal && !findDoor(findInWhatRoom(who), where).locked;
 }
 
 function executeMove(who, where) {
@@ -1084,7 +1140,7 @@ var gameTick = function() {
     _.each(gameObjects, function(object) {
         object.tick();
     });
-    
+
     //Tick all items in rooms
     _.each(rooms, function(room) {
         room.tick && room.tick();
@@ -1111,8 +1167,8 @@ var render = function() {
     context.fillRect(0,0, 1024, 768);
     context.font = "12px Arial";
 
-    context.drawImage(testImg, 0, 0);
-    
+    context.drawImage(shipImg, 0, 0);
+
     _.chain(rooms)
         .filter(function(room) {
             return (room.dimensions);
@@ -1140,6 +1196,10 @@ var render = function() {
         context.fillText("PAUSED", 430, 30);
     }
 
+    _.each(doors, function(object) {
+        object.draw();
+    });
+
     _.each(gameObjects, function(object) {
         object.draw();
     });
@@ -1147,7 +1207,7 @@ var render = function() {
 
 setInterval(function() {
     !HALTED && gameTick();
-    
+
     !DISABLE_VISUALTICK && visualTick();
     !DISABLE_RENDER && render();
 
