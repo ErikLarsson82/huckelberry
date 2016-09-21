@@ -1,3 +1,6 @@
+var version = "0.1";
+
+console.log('Playing version ' + version);
 
 var INTERVAL_DURATION = 1000/60;
 
