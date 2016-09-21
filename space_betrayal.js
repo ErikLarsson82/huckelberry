@@ -42,6 +42,9 @@ crateImg.src = "crate.png";
 var medstationImg = new Image();
 medstationImg.src = "medstation.png";
 
+var controlpanelImg = new Image();
+controlpanelImg.src = "controlpanel.png";
+
 var profile1 = new Image();
 profile1.src = "profile1.png";
 
@@ -87,6 +90,7 @@ canvas.oncontextmenu = function() {
 }
 
 var mousePressedPerson = null;
+var mouseDoorToggleMode = null;
 
 var detectHits = function(list, e) {
     return _.filter(list, function(item) {
@@ -111,10 +115,18 @@ document.addEventListener("mousemove", function(e) {
         })
     });
 
-    var hits = detectHits(ship.rooms, e);
-    _.each(ship.rooms, function(room) {
-        hits = hits.concat(detectHits(room.entities, e))
-    });
+    var hits = [];
+    if (mouseDoorToggleMode) {
+        _.each(doors, function(door) {
+            door.hover = false;
+        });
+        hits = detectHits(doors, e);
+    } else {
+        hits = detectHits(ship.rooms, e);
+        _.each(ship.rooms, function(room) {
+            hits = hits.concat(detectHits(room.entities, e))
+        });        
+    }
 
     _.each(hits, function(hit) {
         hit.hover = hit.hoverCondition();
@@ -143,67 +155,90 @@ document.addEventListener("mousemove", function(e) {
 function resetMousePress() {
     if (mousePressedPerson) mousePressedPerson.selected = false;
     mousePressedPerson = null;
+    mouseDoorToggleMode = null;
+    _.each(doors, function(door) {
+        door.hover = false;
+    });
+}
+
+function leftClick(e) {
+    var hits = detectHits(crew, e);
+
+    var eligableHits = _.filter(hits, function(hit) {
+        return (hit.isConsciousable && !hit.unconsius)
+    })
+    if (eligableHits.length > 0) {
+        resetMousePress();
+        mousePressedPerson = eligableHits[0];
+        eligableHits[0].selected = true;
+    } else {
+        resetMousePress();
+    }
+}
+
+function rightClickWhilePersonSelected(e) {
+    var hits = detectHits(ship.rooms, e);
+    _.each(ship.rooms, function(room) {
+        hits = hits.concat(detectHits(room.entities, e))
+    });
+
+    if (hits.length > 0) mousePressedPerson.removeAllQueue();
+    _.each(hits, function(hit) {
+        if (hit instanceof Room && findInWhatRoom(mousePressedPerson) !== hit) {
+            if (!mousePressedPerson.isWalkable) return;
+
+            var route = findRoute(findInWhatRoom(mousePressedPerson), hit);
+            _.each(route, function(nextRoom) {
+                mousePressedPerson.addToQueue(mousePressedPerson.generateWalkAction(nextRoom));
+            });
+
+        } else if (hit.enemy) {
+            mousePressedPerson.isBrawlable &&  mousePressedPerson.addToQueue(mousePressedPerson.generateBrawlAction(hit))
+        } else if (hit.friend && isInSameRoom(mousePressedPerson, hit)) {
+            if (hit.isConsciousable && hit.unconsius) {
+                hit.unconsius = false;
+                hit.health = 2;
+                var x = hit.dimensions[0] + Math.floor(Math.random() * 5);
+                var y = hit.dimensions[1] - 8 - Math.floor(Math.random() * 10);
+                gameObjects.push(new DamageTick(x, y, 2, "green"));
+            } else {
+
+                var healed = healWithMedkitIfApplicable(mousePressedPerson, hit);
+                var scanned = openScannerIfApplicable(mousePressedPerson, hit);
+
+                if (!healed && !scanned) {
+                    if (mousePressedPerson.isInventoryable && hit.isInventoryable) {
+                        inventoryTransfer.transfer(mousePressedPerson, hit);
+                    }
+                }
+            }
+        } else if (mousePressedPerson.isInventoryable && hit.isInventoryable && isInSameRoom(mousePressedPerson, hit)) {
+            inventoryTransfer.transfer(mousePressedPerson, hit);
+        } else if (hit.isActionable) {
+            hit.action();
+        } else if (mousePressedPerson === hit) {
+            healWithMedkitIfApplicable(mousePressedPerson, mousePressedPerson);
+        } else {
+            console.log('No action');
+        }
+    });
+}
+
+function rightClickWhileDoorToggleMode(e) {
+    var hits = detectHits(doors, e);
+    if (hits.length > 0) {
+        hits[0].action();
+    }
 }
 
 function genericMousePress(e) {
     if (e.button === 0) {
-        var hits = detectHits(crew, e);
-
-        var eligableHits = _.filter(hits, function(hit) {
-            return (hit.isConsciousable && !hit.unconsius)
-        })
-        if (eligableHits.length > 0) {
-            resetMousePress();
-            mousePressedPerson = eligableHits[0];
-            eligableHits[0].selected = true;
-        } else {
-            resetMousePress();
-        }
+        leftClick(e);
     } else if (e.button === 2) {
         if (mousePressedPerson) {
-            var hits = detectHits(ship.rooms, e);
-            _.each(ship.rooms, function(room) {
-                hits = hits.concat(detectHits(room.entities, e))
-            });
-
-            if (hits.length > 0) mousePressedPerson.removeAllQueue();
-            _.each(hits, function(hit) {
-                if (hit instanceof Room && findInWhatRoom(mousePressedPerson) !== hit) {
-                    if (!mousePressedPerson.isWalkable) return;
-
-                    var route = findRoute(findInWhatRoom(mousePressedPerson), hit);
-                    _.each(route, function(nextRoom) {
-                        mousePressedPerson.addToQueue(mousePressedPerson.generateWalkAction(nextRoom));
-                    });
-
-                } else if (hit.enemy) {
-                    mousePressedPerson.isBrawlable &&  mousePressedPerson.addToQueue(mousePressedPerson.generateBrawlAction(hit))
-                } else if (hit.friend && isInSameRoom(mousePressedPerson, hit)) {
-                    if (hit.isConsciousable && hit.unconsius) {
-                        hit.unconsius = false;
-                        hit.health = 2;
-                        var x = hit.dimensions[0] + Math.floor(Math.random() * 5);
-                        var y = hit.dimensions[1] - 8 - Math.floor(Math.random() * 10);
-                        gameObjects.push(new DamageTick(x, y, 2, "green"));
-                    } else {
-
-                        var healed = healWithMedkitIfApplicable(mousePressedPerson, hit);
-                        var scanned = openScannerIfApplicable(mousePressedPerson, hit);
-
-                        if (!healed && !scanned) {
-                            if (mousePressedPerson.isInventoryable && hit.isInventoryable) {
-                                inventoryTransfer.transfer(mousePressedPerson, hit);
-                            }
-                        }
-                    }
-                } else if (mousePressedPerson.isInventoryable && hit.isInventoryable && isInSameRoom(mousePressedPerson, hit)) {
-                    inventoryTransfer.transfer(mousePressedPerson, hit);
-                } else if (mousePressedPerson === hit) {
-                    healWithMedkitIfApplicable(mousePressedPerson, mousePressedPerson);
-                } else {
-                    console.log('No action');
-                }
-            });
+            rightClickWhilePersonSelected(e);  
+        } else if (mouseDoorToggleMode) {
+            rightClickWhileDoorToggleMode(e);
         }
     }
 
@@ -214,6 +249,8 @@ document.addEventListener("mousedown", function(e) {
         inventoryTransfer.mouseEvent(e);
     } else if (scanner.visible) {
         scanner.mouseEvent(e);
+    } else if (controlpanelPopup.visible) {
+        controlpanelPopup.mouseEvent(e);
     } else {
         genericMousePress(e);
     }
@@ -329,6 +366,11 @@ function selectable(object, condition) {
             context.stroke();
         }
     }
+}
+
+function actionable(object, action) {
+    object.isActionable = true;
+    object.action = action;
 }
 
 function walkable(object) {
@@ -525,13 +567,13 @@ _.extend(player, {
 tickable(player, function() {});
 renderable(player);
 selectable(player, function() {
-    return this.isConsciousable && !this.unconsius;
+    return this.isConsciousable && !this.unconsius && !mouseDoorToggleMode;
 });
 walkable(player);
 actionQueueAble(player);
 brawlable(player, 3);
 inventoryable(player);
-healthable(player, 5);
+healthable(player, 9);
 
 
 var medic = new Entity();
@@ -549,7 +591,7 @@ _.extend(medic, {
 tickable(medic, function() {});
 renderable(medic);
 selectable(medic, function() {
-    return this.isConsciousable && !this.unconsius;
+    return this.isConsciousable && !this.unconsius && !mouseDoorToggleMode;
 });
 walkable(medic);
 actionQueueAble(medic);
@@ -588,6 +630,20 @@ selectable(medbay, function() {
 });
 inventoryable(medbay);
 medbays.push(medbay);
+
+var controlpanel = new Entity();
+_.extend(controlpanel, {
+    name: "controlpanel",
+    img: controlpanelImg,
+    dimensions: [0, 0, 33, 33]
+})
+renderable(controlpanel);
+selectable(controlpanel, function() {
+    return !!mousePressedPerson;
+});
+actionable(controlpanel, function() {
+    controlpanelPopup.open();
+});
 
 var Item = function() {};
 
@@ -718,8 +774,7 @@ inventoryTransfer.draw = function() {
     context.fillStyle = "#aaaaaa";
     context.fillRect(244, 170, 533, 395);
     context.fillStyle = "#333333";
-    context.fillRect(258, 186, 247, 363);
-    context.fillRect(518, 186, 247, 363);
+    context.fillRect(258, 186, 520, 370);
 
     context.fillStyle = "white";
     context.font = "12px Arial";
@@ -751,6 +806,82 @@ inventoryTransfer.draw = function() {
 }
 
 gameObjects.push(inventoryTransfer);
+
+
+
+var controlpanelPopup = new GameObject();
+controlpanelPopup.name = "ControlpanelPopup";
+controlpanelPopup.visible = false;
+controlpanelPopup.open = function() {
+    this.visible = true;
+}
+controlpanelPopup.mouseEvent = function(e) {
+    var closeButton = {
+        dimensions: [784, 114, 54, 54],
+        action: function() {
+            controlpanelPopup.visible = false;
+        }
+    }
+    var lockDoorsButton = {
+        dimensions: [300, 250, 200, 100],
+        action: function() {
+            modifyAllDoorsStatus(true, false);
+            controlpanelPopup.visible = false;
+        }
+    }
+    var unlockDoorsButton = {
+        dimensions: [550, 250, 200, 100],
+        action: function() {
+            modifyAllDoorsStatus(false, false);
+            controlpanelPopup.visible = false;
+        }
+    }
+    var toggleDoorsButton = {
+        dimensions: [300, 400, 200, 100],
+        action: function() {
+            resetMousePress();
+            mouseDoorToggleMode = true;
+            controlpanelPopup.visible = false;
+        }
+    }
+    var hits = detectHits([closeButton, lockDoorsButton, unlockDoorsButton, toggleDoorsButton], e);
+
+    if (hits.length > 0) {
+        hits[0].action();
+    }
+}
+controlpanelPopup.draw = function() {
+    if (!this.visible) return;
+
+    context.fillStyle = "rgba(0,0,0,.8)";
+    context.fillRect(0, 0, 1024, 768);
+    context.fillStyle = "#aaaaaa";
+    context.fillRect(244, 170, 533, 395);
+    context.fillStyle = "#333333";
+    context.fillRect(258, 186, 520, 370);
+
+
+    context.fillStyle = "#cccccc";
+    context.fillRect(300, 250, 200, 100);
+    
+    context.fillStyle = "#cccccc";
+    context.fillRect(550, 250, 200, 100);
+
+    context.fillStyle = "#cccccc";
+    context.fillRect(300, 400, 200, 100);
+    context.fillStyle = "black";
+    context.font = "12px Arial";
+    context.fillText("Toggle mode", 320, 420)
+    context.fillText("Unlock all doors", 570, 270)
+    context.fillText("Lock all doors", 320, 270)
+
+    context.fillStyle = "red";
+    context.fillRect(784, 114, 54, 54);
+}
+
+gameObjects.push(controlpanelPopup);
+
+
 
 var toolTip = new GameObject();
 toolTip.name = "Tooltip";
@@ -790,11 +921,10 @@ var Room = function(name, dimensions) {
     });
 }
 
-var Door = function(from, to, orientation, x, y, locked, open) {
+var Door = function(from, to, orientation, dimensions, locked, open) {
     this.connections = [from, to];
     this.orientation = orientation;
-    this.x = x || 0;
-    this.y = y || 0;
+    this.dimensions = dimensions;
     this.locked = locked;
     this.open = open;
 
@@ -822,9 +952,15 @@ var Door = function(from, to, orientation, x, y, locked, open) {
     }
 
     this.draw = function() {
-
-        context.drawImage(door[this.open][this.locked][this.orientation], x, y);
+        context.drawImage(door[this.open][this.locked][this.orientation], dimensions[0], dimensions[1]);
     }
+    selectable(this, function() {
+        return !!mouseDoorToggleMode;
+    });
+
+    actionable(this, function() {
+        this.locked = !this.locked;
+    })
 };
 
 var timesTwo = function(array) {
@@ -840,31 +976,31 @@ var kitchen = new Room("Kitchen", timesTwo([32, 80, 112, 90]));
 var engineroom = new Room("Engineroom", timesTwo([167, 37, 80, 73]));
 var bedroom = new Room("Bedroom", timesTwo([48, 174, 80, 75]));
 var shieldroom = new Room("Shieldroom", timesTwo([251, 37, 80, 73]));
-var escapePod1 = new Room("Escape pod 1", timesTwo([66, 33, 43, 43]));
-var escapePod2 = new Room("Escape pod 2", timesTwo([403, 34, 43, 43]));
+//var escapePod1 = new Room("Escape pod 1", timesTwo([66, 33, 43, 43]));
+//var escapePod2 = new Room("Escape pod 2", timesTwo([403, 34, 43, 43]));
 
 var crew = [player, medic] //  , pilot, engineer, warrior];
 
-var door1 = new Door(bedroom, kitchen, false, 112, 324, false, false);
-var door2 = new Door(kitchen, bridge, true, 272, 268, false, false);
-var door3 = new Door(engineroom, bridge, false, 352, 204, false, false);
-var door4 = new Door(engineroom, shieldroom, true, 478, 156, false, false);
-var door5 = new Door(bridge, medbay, true, 710, 284, false, false);
-var door6 = new Door(medbay, storageroom, false, 786, 336, false, false);
-var door7 = new Door(kitchen, escapePod1, false, -100, -100, false, false);
-var door8 = new Door(medbay, escapePod2, false, -100, -100, false, false);
+var door1 = new Door(bedroom, kitchen, false, [112, 324, 48, 48], false, false);
+var door2 = new Door(kitchen, bridge, true, [272, 268, 48, 48], false, false);
+var door3 = new Door(engineroom, bridge, false, [352, 204, 48, 48], false, false);
+var door4 = new Door(engineroom, shieldroom, true, [478, 156, 48, 48], false, false);
+var door5 = new Door(bridge, medbay, true, [710, 284, 48, 48], false, false);
+var door6 = new Door(medbay, storageroom, false, [786, 336, 48, 48], false, false);
+//var door7 = new Door(kitchen, escapePod1, false, [-100, -100, 48, 48], false, false);
+//var door8 = new Door(medbay, escapePod2, false, [-100, -100, 48, 48], false, false);
 
 bridge.connections = [engineroom, kitchen, medbay];
-medbay.connections = [escapePod2, storageroom, bridge];
+medbay.connections = [storageroom, bridge];
 storageroom.connections = [medbay];
-kitchen.connections = [escapePod1, bridge, bedroom];
+kitchen.connections = [bridge, bedroom];
 engineroom.connections = [shieldroom, bridge];
 bedroom.connections = [kitchen];
 shieldroom.connections = [engineroom];
-escapePod1.connections = [kitchen];
-escapePod2.connections = [medbay];
+//escapePod1.connections = [kitchen];
+//escapePod2.connections = [medbay];
 
-var rooms = [escapePod1, bedroom, kitchen, bridge, engineroom, shieldroom, medbay, storageroom, escapePod2];
+var rooms = [bedroom, kitchen, bridge, engineroom, shieldroom, medbay, storageroom];
 
 _.each(rooms, function(room) {
     tickable(room, function() {
@@ -906,7 +1042,7 @@ function openScannerIfApplicable(who, whom) {
 }
 
 function fullScreenPopupVisible() {
-    return inventoryTransfer.visible || scanner.visible;
+    return inventoryTransfer.visible || scanner.visible || controlpanelPopup.visible;
 }
 
 var placeCrewRandomly = function() {
@@ -999,7 +1135,7 @@ var placeItemsRandomly = function() {
     });
 };
 
-var doors = [door1, door2, door3, door4, door5, door6, door7, door8];
+var doors = [door1, door2, door3, door4, door5, door6];
 
 var ship = {
     rooms: rooms,
@@ -1242,6 +1378,12 @@ var render = function() {
         context.fillText("PAUSED", 430, 30);
     }
 
+    if (mouseDoorToggleMode) {
+        context.fillStyle = "red";
+        context.font = "30px Arial";
+        context.fillText("Toggle doors with right click", 320, 60);
+    }
+
     _.each(doors, function(object) {
         object.draw();
     });
@@ -1290,18 +1432,8 @@ if (SCENARIO !== false) {
     placeMedbayRandomly();
 
     placeItemsRandomly();
-    //bridge.entities.push(player);
-    //bridge.entities.push(medic);
-    //bridge.entities.push(crate);
-    //storageroom.entities.push(crate2);
-    //engineroom.entities.push(crate3);
 
-    //kitchen.entities.push(alien);
-    //bedroom.entities.push(alien2);
-
-    //player.inventory.push(pistol);
-    //crate.inventory.push(lazergun);
-    //crate.inventory.push(baseballbat);
-
+    bridge.entities.push(controlpanel);
+    
     gameTick();
 }
