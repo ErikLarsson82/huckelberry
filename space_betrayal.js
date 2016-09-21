@@ -169,7 +169,13 @@ function genericMousePress(e) {
             if (hits.length > 0) mousePressedPerson.removeAllQueue();
             _.each(hits, function(hit) {
                 if (hit instanceof Room && findInWhatRoom(mousePressedPerson) !== hit) {
-                    mousePressedPerson.isWalkable && mousePressedPerson.addToQueue(mousePressedPerson.generateWalkAction(hit))
+                    if (!mousePressedPerson.isWalkable) return;
+
+                    var route = findRoute(findInWhatRoom(mousePressedPerson), hit);
+                    _.each(route, function(nextRoom) {
+                        mousePressedPerson.addToQueue(mousePressedPerson.generateWalkAction(nextRoom));
+                    });
+
                 } else if (hit.enemy) {
                     mousePressedPerson.isBrawlable &&  mousePressedPerson.addToQueue(mousePressedPerson.generateBrawlAction(hit))
                 } else if (hit.friend && isInSameRoom(mousePressedPerson, hit)) {
@@ -345,6 +351,7 @@ function walkable(object) {
                 if (isLegalMove(object, where) && !door.locked) {
                     door.open = true;
                 } else {
+                    this.walking = false;
                     door.open = false;
                     return false;
                 }
@@ -778,11 +785,8 @@ var Room = function(name, dimensions) {
         var childrenHovered = _.filter(this.entities, function(entity) {
             return entity.hover;
         });
-        var isAdjacent = _.filter(findInWhatRoom(mousePressedPerson).connections, function(connection) {
-            return (connection === this);
-        }.bind(this)).length > 0;
 
-        return !!mousePressedPerson && isAdjacent && childrenHovered.length === 0;
+        return !!mousePressedPerson && childrenHovered.length === 0;
     });
 }
 
@@ -1016,7 +1020,6 @@ var clearAllQueuedActions = function() {
     });
 }
 
-// Ship help functions
 var findDoor = function(from, to) {
     var door = _.filter(doors, function(door) {
         return _.contains(door.connections, from) && _.contains(door.connections, to);
@@ -1024,11 +1027,17 @@ var findDoor = function(from, to) {
     return (door.length === 1) ? door[0] : alert("Door broken");
 }
 
+/*function isAdjacent() {
+    var isAdjacent = _.filter(findInWhatRoom(mousePressedPerson).connections, function(connection) {
+                return (connection === this);
+            }.bind(this)).length > 0;
+}*/
+
 // Returns a room
 var findInWhatRoom = function(whatOrWho) {
     var room = _.filter(rooms, function(room) {
-        var list = _.filter(room.items, function(item) {
-            return (item === whatOrWho);
+        var list = _.filter(room.entities, function(entity) {
+            return (entity === whatOrWho);
         });
         return list.length > 0;
     });
@@ -1054,6 +1063,9 @@ var modifyAllDoorsStatus = function(locked, open) {
 }
 
 var findRoute = function(from, to) {
+    if (from === to) {
+        return [];
+    }
     var route = [];
     var visitedRooms = [];
     var routesLeft = true;
@@ -1088,7 +1100,9 @@ var findRoute = function(from, to) {
         if (foundIt) return route;
         return false;
     }
-    return tryAllRooms(from);
+    var route = tryAllRooms(from);
+    route.shift();
+    return route;
 }
 
 function cycleInventory(who) {
