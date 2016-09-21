@@ -176,8 +176,15 @@ function genericMousePress(e) {
                         var y = hit.dimensions[1] - 8 - Math.floor(Math.random() * 10);
                         gameObjects.push(new DamageTick(x, y, 2, "green"));
                     } else {
-                        healWithMedkitIfApplicable(mousePressedPerson, hit);
-                        openScannerIfApplicable(mousePressedPerson, hit);
+
+                        var healed = healWithMedkitIfApplicable(mousePressedPerson, hit);
+                        var scanned = openScannerIfApplicable(mousePressedPerson, hit);
+
+                        if (!healed && !scanned) {
+                            if (mousePressedPerson.isInventoryable && hit.isInventoryable) {
+                                inventoryTransfer.transfer(mousePressedPerson, hit);
+                            }
+                        }
                     }
                 } else if (mousePressedPerson.isInventoryable && hit.isInventoryable && isInSameRoom(mousePressedPerson, hit)) {
                     inventoryTransfer.transfer(mousePressedPerson, hit);
@@ -859,14 +866,18 @@ function healWithMedkitIfApplicable(who, whom) {
         var y = whom.dimensions[1] - 8 - Math.floor(Math.random() * 10);
         gameObjects.push(new DamageTick(x, y, whom.maxHealth - whom.health, "green"));
         whom.health = whom.maxHealth;
+        return true;
     }
+    return false;
 }
 
 function openScannerIfApplicable(who, whom) {
     if (who.isInventoryable && who.inventory.length > 0 &&
                who.inventory[0].name === "Scanner") {
         scanner.open(whom);
+        return true;
     }
+    return false;
 }
 
 function fullScreenPopupVisible() {
