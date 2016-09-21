@@ -215,7 +215,7 @@ function rightClickWhilePersonSelected(e) {
         } else if (mousePressedPerson.isInventoryable && hit.isInventoryable && isInSameRoom(mousePressedPerson, hit)) {
             inventoryTransfer.transfer(mousePressedPerson, hit);
         } else if (hit.isActionable) {
-            hit.action();
+            hit.action(mousePressedPerson);
         } else if (mousePressedPerson === hit) {
             healWithMedkitIfApplicable(mousePressedPerson, mousePressedPerson);
         } else {
@@ -641,8 +641,8 @@ renderable(controlpanel);
 selectable(controlpanel, function() {
     return !!mousePressedPerson;
 });
-actionable(controlpanel, function() {
-    controlpanelPopup.open();
+actionable(controlpanel, function(whom) {
+    if (isInSameRoom(whom, controlpanel)) controlpanelPopup.open();
 });
 
 var Item = function() {};
