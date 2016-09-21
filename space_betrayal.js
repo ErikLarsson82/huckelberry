@@ -140,20 +140,24 @@ document.addEventListener("mousemove", function(e) {
     }*/
 });
 
+function resetMousePress() {
+    if (mousePressedPerson) mousePressedPerson.selected = false;
+    mousePressedPerson = null;
+}
+
 function genericMousePress(e) {
     if (e.button === 0) {
         var hits = detectHits(crew, e);
 
-        function reset() {
-            if (mousePressedPerson) mousePressedPerson.selected = false;
-        }
-        if (hits.length > 0) {
-            reset();
-            mousePressedPerson = hits[0];
-            hits[0].selected = true;
+        var eligableHits = _.filter(hits, function(hit) {
+            return (hit.isConsciousable && !hit.unconsius)
+        })
+        if (eligableHits.length > 0) {
+            resetMousePress();
+            mousePressedPerson = eligableHits[0];
+            eligableHits[0].selected = true;
         } else {
-            reset();
-            mousePressedPerson = null;
+            resetMousePress();
         }
     } else if (e.button === 2) {
         if (mousePressedPerson) {
@@ -362,8 +366,12 @@ function healthable(object, health) {
     object.unconsius = false;
     object.isConsciousable = true;
     var storeTick = object.tick || function() {};
+    function resetIfSelected() {
+        if (object === mousePressedPerson) resetMousePress();
+    }
     object.tick = function() {
         if (object.health < 1) {
+            resetIfSelected();
             object.unconsius = true;
         } else {
             storeTick.call(object);
@@ -509,7 +517,9 @@ _.extend(player, {
 })
 tickable(player, function() {});
 renderable(player);
-selectable(player, function() { return true; });
+selectable(player, function() {
+    return this.isConsciousable && !this.unconsius;
+});
 walkable(player);
 actionQueueAble(player);
 brawlable(player, 3);
@@ -531,7 +541,9 @@ _.extend(medic, {
 })
 tickable(medic, function() {});
 renderable(medic);
-selectable(medic, function() { return true; });
+selectable(medic, function() {
+    return this.isConsciousable && !this.unconsius;
+});
 walkable(medic);
 actionQueueAble(medic);
 brawlable(medic, 2);
