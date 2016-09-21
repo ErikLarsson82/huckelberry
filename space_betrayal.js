@@ -335,6 +335,9 @@ function walkable(object) {
             },
             event: function(duration) {
                 var door = findDoor(findInWhatRoom(object), where);
+                if (!door) {
+                    return false;
+                }
                 if (isLegalMove(object, where) && !door.locked) {
                     door.open = true;
                 } else {
@@ -758,10 +761,16 @@ var Room = function(name, dimensions) {
         if (this.activated > 0) this.activated -= 1;
     }
     selectable(this, function() {
+        if (!mousePressedPerson) return;
+
         var childrenHovered = _.filter(this.entities, function(entity) {
             return entity.hover;
         });
-        return !!mousePressedPerson && childrenHovered.length === 0;
+        var isAdjacent = _.filter(findInWhatRoom(mousePressedPerson).connections, function(connection) {
+            return (connection === this);
+        }.bind(this)).length > 0;
+
+        return !!mousePressedPerson && isAdjacent && childrenHovered.length === 0;
     });
 }
 
