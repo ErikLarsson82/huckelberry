@@ -22,6 +22,9 @@ testImg.src = "test.png";
 var crateImg = new Image();
 crateImg.src = "crate.png";
 
+var medstationImg = new Image();
+medstationImg.src = "medstation.png";
+
 var profile1 = new Image();
 profile1.src = "profile1.png";
 
@@ -82,7 +85,7 @@ var detectHits = function(list, e) {
 }
 
 document.addEventListener("mousemove", function(e) {
-    if (inventoryTransfer.visible) return;
+    if (fullScreenPopupVisible()) return;
 
     _.each(ship.rooms, function(room) {
         room.hover = false;
@@ -100,18 +103,20 @@ document.addEventListener("mousemove", function(e) {
         hit.hover = hit.hoverCondition();
     });
 
-    /*var hitsWithConditions = _.filter(hits, function(hit) {
+    /*var foundSuitable = false;
+    var hitsWithConditions = _.filter(hits, function(hit) {
         var hitCon = hit.hoverCondition();
-        if (hitCon) {
+        if (hitCon && mousePressedPerson && !(hit instanceof Room)) {
             toolTip.visible = true;
-            toolTip.x = hit.dimensions[0] + 50;
-            toolTip.y = hit.dimensions[1] + 50;
+            foundSuitable = true;
+            toolTip.x = hit.dimensions[0] + 20;
+            toolTip.y = hit.dimensions[1] - 30;
         }
         hit.hover = hitCon;
         return hitCon;
     });
 
-    if (hitsWithConditions.length === 0) {
+    if (!foundSuitable) {
         toolTip.visible = false;
         toolTip.x = 0;
         toolTip.y = 0;
@@ -153,9 +158,16 @@ function genericMousePress(e) {
                         var x = hit.dimensions[0] + Math.floor(Math.random() * 5);
                         var y = hit.dimensions[1] - 8 - Math.floor(Math.random() * 10);
                         gameObjects.push(new DamageTick(x, y, 2, "green"));
+                    } else {
+                        healWithMedkitIfApplicable(mousePressedPerson, hit);
+                        openScannerIfApplicable(mousePressedPerson, hit);
                     }
                 } else if (mousePressedPerson.isInventoryable && hit.isInventoryable && isInSameRoom(mousePressedPerson, hit)) {
                     inventoryTransfer.transfer(mousePressedPerson, hit);
+                } else if (mousePressedPerson === hit) {
+                    healWithMedkitIfApplicable(mousePressedPerson, mousePressedPerson);
+                } else {
+                    console.log('No action');
                 }
             });
         }
@@ -166,6 +178,8 @@ function genericMousePress(e) {
 document.addEventListener("mousedown", function(e) {
     if (inventoryTransfer.visible) {
         inventoryTransfer.mouseEvent(e);
+    } else if (scanner.visible) {
+        scanner.mouseEvent(e);
     } else {
         genericMousePress(e);
     }
@@ -189,6 +203,8 @@ document.addEventListener("keydown", function(e) {
         //P
         DISABLE_RENDER = !DISABLE_RENDER;
         DISABLE_VISUALTICK = !DISABLE_VISUALTICK;
+    } else if (e.keyCode === 67) {
+        cycleInventory(mousePressedPerson);
     }
 });
 
@@ -306,6 +322,7 @@ function walkable(object) {
 }
 
 function healthable(object, health) {
+    object.maxHealth = health;
     object.health = health;
     object.unconsius = false;
     object.isConsciousable = true;
@@ -352,7 +369,7 @@ function brawlable(object, punchingPower) {
                     } else {
                         var dmg = this.punchingPower;
                         if (this.isInventoryable && this.inventory.length > 0) {
-                            dmg = _.max(this.inventory, function(item){ return item.dmg; }).dmg;
+                            dmg = this.inventory[0].dmg || 0;
                         }
                         whom.hurt(dmg);
                         object.punching = true;
@@ -377,12 +394,14 @@ function inventoryable(object) {
 
         if (mousePressedPerson === object) {
             context.fillStyle = "gray";
-            context.fillRect(800, 600, 100, 100)
+            context.fillRect(800, 550, 180, 150)
             context.fillStyle = "white";
-            context.fillText("Inventory:", 810, 620);
+            context.fillText("Inventory (C to cycle):", 810, 570);
 
             _.each(object.inventory, function(item, idx) {
-                context.fillText(item.name, 810, 620 + 20 + (idx * 20));                
+                var append = "";
+                if (idx === 0) append = " [ACTIVE]";
+                context.fillText(item.name + append, 810, 570 + 20 + (idx * 20));                
             })
         }
     }
@@ -460,7 +479,7 @@ walkable(player);
 actionQueueAble(player);
 brawlable(player, 3);
 inventoryable(player);
-healthable(player, 1);
+healthable(player, 5);
 
 
 var medic = new Entity();
@@ -482,7 +501,7 @@ walkable(medic);
 actionQueueAble(medic);
 brawlable(medic, 2);
 inventoryable(medic);
-healthable(medic, 20);
+healthable(medic, 12);
 
 
 var crates = [];
@@ -502,6 +521,20 @@ _.each(new Array(3), function(unused, idx) {
     crates.push(crate);
 })
 
+var medbays = [];
+var medbay = new Entity();
+_.extend(medbay, {
+    name: "Medbay",
+    img: medstationImg,
+    dimensions: [0, 0, 33, 33]
+})
+renderable(medbay);
+selectable(medbay, function() {
+    return !!mousePressedPerson;
+});
+inventoryable(medbay);
+medbays.push(medbay);
+
 var Item = function() {};
 
 var pistol = new Item();
@@ -518,6 +551,21 @@ baseballbat.dmg = 5;
 
 var items = [pistol, lazergun, baseballbat];
 
+var scannerItem = new Item();
+scannerItem.name = "Scanner";
+var healthkit1 = new Item();
+healthkit1.name = "Health kit";
+healthkit1.healing = true;
+var healthkit2 = new Item();
+healthkit2.name = "Health kit";
+healthkit2.healing = true;
+
+
+medbay.inventory.push(scannerItem);
+medbay.inventory.push(healthkit1);
+medbay.inventory.push(healthkit2);
+
+
 var GameObject = function(tick, visualTick, draw) {
     this.tick = tick || function() {};
     this.visualTick = visualTick || function() {};
@@ -525,6 +573,48 @@ var GameObject = function(tick, visualTick, draw) {
 }
 
 var gameObjects = [];
+
+var scanner = new GameObject();
+scanner.name = "Scanner";
+scanner.visible = false;
+scanner.open = function(whom) {
+    this.visible = true;
+    this.whom = whom;
+}
+scanner.mouseEvent = function(e) {
+    var closeButton = {
+        dimensions: [784, 114, 54, 54],
+        action: function() {
+            scanner.visible = false;    
+        }
+    }
+    var hits = detectHits([closeButton], e);
+    
+    if (hits.length > 0) {
+        hits[0].action();
+    }
+}
+scanner.draw = function() {
+    if (!this.visible) return;
+
+    context.fillStyle = "rgba(0,0,0,.8)";
+    context.fillRect(0, 0, 1024, 768);
+    context.fillStyle = "#aaaaaa";
+    context.fillRect(244, 170, 533, 395);
+    context.fillStyle = "#333333";
+    context.fillRect(258, 186, 520, 370);
+
+    context.fillStyle = "white";
+    context.font = "12px Arial";
+    context.fillText(this.whom.name, 350, 350);
+    context.fillText("Health: " + this.whom.health + " / " + this.whom.maxHealth, 350, 390);
+    context.fillText("Punch power: " + this.whom.punchingPower, 350, 430);
+
+    context.fillStyle = "red";
+    context.fillRect(784, 114, 54, 54);
+}
+gameObjects.push(scanner);
+
 
 var inventoryTransfer = new GameObject();
 inventoryTransfer.name = "InventoryTransfer";
@@ -615,7 +705,7 @@ toolTip.y = 50;
 toolTip.visible = false;
 toolTip.action = "-";
 toolTip.draw = function() {
-    if (!this.visible) return;
+    if (!this.visible || fullScreenPopupVisible()) return;
 
     context.fillStyle = "#222222";
     context.fillRect(this.x, this.y, 100, 30);
@@ -688,12 +778,42 @@ var rooms = [escapePod1, bedroom, kitchen, bridge, engineroom, shieldroom, medba
 
 _.each(rooms, function(room) {
     tickable(room, function() {
+        var numberPerRow = 2;
+    
+        if (this.dimensions[2] > 165) {
+            numberPerRow = 4;
+        }
+        if (this.dimensions[2] > 225) {
+            numberPerRow = 8;
+        }
         _.each(this.entities, function(entity, idx) {
-            entity.dimensions[0] = room.dimensions[0] + 40 + (45 * idx);
-            entity.dimensions[1] = room.dimensions[1] + 40; 
+            entity.dimensions[0] = room.dimensions[0] + 30 + (45 * (idx % numberPerRow));
+            entity.dimensions[1] = room.dimensions[1] + 30 + (45 * Math.floor(idx / numberPerRow)); 
         });
     });
 })
+
+// Generic functions
+function healWithMedkitIfApplicable(who, whom) {
+    if (who.isInventoryable && who.inventory.length > 0 &&
+               who.inventory[0].healing) {
+        var x = whom.dimensions[0] + Math.floor(Math.random() * 5);
+        var y = whom.dimensions[1] - 8 - Math.floor(Math.random() * 10);
+        gameObjects.push(new DamageTick(x, y, whom.maxHealth - whom.health, "green"));
+        whom.health = whom.maxHealth;
+    }
+}
+
+function openScannerIfApplicable(who, whom) {
+    if (who.isInventoryable && who.inventory.length > 0 &&
+               who.inventory[0].name === "Scanner") {
+        scanner.open(whom);
+    }
+}
+
+function fullScreenPopupVisible() {
+    return inventoryTransfer.visible || scanner.visible;
+}
 
 var placeCrewRandomly = function() {
     _.each(crew, function(person) {
@@ -763,6 +883,13 @@ var placeCratesRandomly = function() {
     _.each(crates, function(crate) {
         var index = Math.floor(Math.random() * rooms.length);
         rooms[index].entities.push(crate);
+    });
+};
+
+var placeMedbayRandomly = function() {
+    _.each(medbays, function(medbay) {
+        var index = Math.floor(Math.random() * rooms.length);
+        rooms[index].entities.push(medbay);
     });
 };
 
@@ -871,6 +998,14 @@ var findRoute = function(from, to) {
         return false;
     }
     return tryAllRooms(from);
+}
+
+function cycleInventory(who) {
+    if (who && who.isInventoryable && who.inventory.length > 1) {
+        who.inventory.push(who.inventory.shift());
+        return true;
+    }
+    return false;
 }
 
 var canBeHit = function(who) {
@@ -1042,6 +1177,8 @@ if (SCENARIO !== false) {
     placeBanditsRandomly();
 
     placeCratesRandomly();
+
+    placeMedbayRandomly();
 
     placeItemsRandomly();
     //bridge.entities.push(player);
