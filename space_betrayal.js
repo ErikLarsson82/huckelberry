@@ -328,7 +328,7 @@ function hunterAI(object) {
     object.tick = function() {
         preserveTick && preserveTick.call(object);
 
-        if (this.brawling) {
+        if (this.brawling || this.unconsius) {
             counter = max;
             return;
         }
