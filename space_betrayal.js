@@ -1424,6 +1424,10 @@ var render = function() {
     _.each(gameObjects, function(object) {
         object.draw();
     });
+
+    context.fillStyle = "white";
+    context.font = "20px Arial";
+    context.fillText("Version: " + version, 800, 750);
 }
 
 setInterval(function() {
