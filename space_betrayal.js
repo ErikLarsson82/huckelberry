@@ -1,6 +1,16 @@
-var version = "0.2";
+var version = "0.3";
 
 console.log('Playing version ' + version);
+
+function getParameterByName(name, url) {
+    if (!url) url = window.location.href;
+    name = name.replace(/[\[\]]/g, "\\$&");
+    var regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)"),
+        results = regex.exec(url);
+    if (!results) return null;
+    if (!results[2]) return '';
+    return decodeURIComponent(results[2].replace(/\+/g, " "));
+}
 
 var INTERVAL_DURATION = 1000/60;
 
@@ -10,7 +20,7 @@ var DISABLE_RENDER = false;
 
 var SCENARIO = false;
 
-var DEBUG_SEED = false;
+var DEBUG_SEED = parseInt(getParameterByName('seed'));
 
 var LOCKED = "Locked";
 
@@ -125,7 +135,7 @@ document.addEventListener("mousemove", function(e) {
         hits = detectHits(ship.rooms, e);
         _.each(ship.rooms, function(room) {
             hits = hits.concat(detectHits(room.entities, e))
-        });        
+        });
     }
 
     _.each(hits, function(hit) {
@@ -236,7 +246,7 @@ function genericMousePress(e) {
         leftClick(e);
     } else if (e.button === 2) {
         if (mousePressedPerson) {
-            rightClickWhilePersonSelected(e);  
+            rightClickWhilePersonSelected(e);
         } else if (mouseDoorToggleMode) {
             rightClickWhileDoorToggleMode(e);
         }
@@ -311,17 +321,29 @@ var DamageTick = function(x, y, amount, color) {
     return ticker;
 }
 
-function mixinWalkerAI(object) {
-    var preserveTick = object.tick;
+function hunterAI(object) {
+    var preserveTick = object.tick || function() {};
     var max = 100;
     var counter = max;
     object.tick = function() {
-        preserveTick && preserveTick();
+        preserveTick && preserveTick.call(object);
+
+        if (this.brawling) {
+            counter = max;
+            return;
+        }
+
         counter -= 1;
         if (counter < 0) {
             counter = max;
             var room = findInWhatRoom(object);
-            var randomConnectedRoom = room.connections[Math.floor(Math.random() * room.connections.length)];
+            var roomsWithPeople = connectedRoomsWithPeople(room);
+            var randomConnectedRoom;
+            if (roomsWithPeople) {
+                randomConnectedRoom = roomsWithPeople[Math.floor(Math.random() * roomsWithPeople.length)];
+            } else {
+                randomConnectedRoom = room.connections[Math.floor(Math.random() * room.connections.length)];
+            }
             executeMove(object, randomConnectedRoom);
         }
     }
@@ -434,13 +456,14 @@ function healthable(object, health) {
     }
 }
 
-function brawlable(object, punchingPower) {
+function brawlable(object, punchingPower, cooldown) {
     object.punchingPower = punchingPower;
+    object.cooldown = cooldown;
     object.brawling = false;
     object.punching = false;
     object.isBrawlable = true;
     object.generateBrawlAction = function(whom) {
-        var counter = 100;
+        var counter = object.cooldown || 100;
         return {
             who: object,
             target: whom,
@@ -467,7 +490,7 @@ function brawlable(object, punchingPower) {
                         object.punching = true;
                     }
                 } else if (counter < 0) {
-                    counter = 100;
+                    counter = object.cooldown;
                     object.punching = false;
                 }
                 return true;
@@ -502,12 +525,11 @@ function inventoryable(object) {
 function brawlAI(object) {
     var storeTick = object.tick;
     object.tick = function() {
-        storeTick.call(object);
-
         var opponents = _.filter(findInWhatRoom(this).entities, function(entity) {
             return entity.health && entity !== this && entity.friend && !entity.unconsius;
         }.bind(this));
         var opponent = opponents[Math.floor(Math.random() * opponents.length)];
+
         if (opponent) {
             if (this.queue.length === 0) this.addToQueue(this.generateBrawlAction(opponent));
         } else {
@@ -515,6 +537,7 @@ function brawlAI(object) {
             this.punching = false;
             this.queue.length = 0;
         }
+        storeTick.call(object);
     }
 }
 
@@ -571,7 +594,7 @@ selectable(player, function() {
 });
 walkable(player);
 actionQueueAble(player);
-brawlable(player, 3);
+brawlable(player, 3, 70);
 inventoryable(player);
 healthable(player, 9);
 
@@ -595,7 +618,7 @@ selectable(medic, function() {
 });
 walkable(medic);
 actionQueueAble(medic);
-brawlable(medic, 2);
+brawlable(medic, 2, 100);
 inventoryable(medic);
 healthable(medic, 12);
 
@@ -863,7 +886,7 @@ controlpanelPopup.draw = function() {
 
     context.fillStyle = "#cccccc";
     context.fillRect(300, 250, 200, 100);
-    
+
     context.fillStyle = "#cccccc";
     context.fillRect(550, 250, 200, 100);
 
@@ -1020,6 +1043,15 @@ _.each(rooms, function(room) {
 })
 
 // Generic functions
+function connectedRoomsWithPeople(room) {
+    var rooms = _.filter(room.connections, function(room) {
+        return _.filter(room.entities, function(entity) {
+            return (entity.friend);
+        }).length > 0;
+    });
+    return rooms.length > 0 && rooms;
+}
+
 function healWithMedkitIfApplicable(who, whom) {
     if (who.isInventoryable && who.inventory.length > 0 &&
                who.inventory[0].healing) {
@@ -1068,12 +1100,13 @@ var placeAliensRandomly = function() {
         })
         renderable(alien);
         actionQueueAble(alien);
-        brawlable(alien, 3);
-        brawlAI(alien);
+        brawlable(alien, 3, 110);
         selectable(alien, function() {
             return !!mousePressedPerson;
         });
         healthable(alien, 5);
+        hunterAI(alien);
+        brawlAI(alien);
 
         var roomIndex = Math.floor(Math.random() * rooms.length);
         rooms[roomIndex].entities.push(alien);
@@ -1098,7 +1131,7 @@ var placeBanditsRandomly = function() {
         })
         renderable(bandit);
         actionQueueAble(bandit);
-        brawlable(bandit, 4);
+        brawlable(bandit, 5, 140);
         brawlAI(bandit);
         selectable(bandit, function() {
             return !!mousePressedPerson;
@@ -1434,6 +1467,6 @@ if (SCENARIO !== false) {
     placeItemsRandomly();
 
     bridge.entities.push(controlpanel);
-    
+
     gameTick();
 }
