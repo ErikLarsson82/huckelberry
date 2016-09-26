@@ -520,6 +520,38 @@ const BrawlAI = (superclass) => class extends superclass {
     }
 }
 
+const HuntAI = (superclass) => class extends superclass {
+    constructor(data) {
+        super(data);
+        this.brawlAI = {
+            max: 100,
+            counter: 100
+        }
+    }
+    tick() {
+        super.tick();
+
+        if (this.brawling || this.unconsius) {
+            this.brawlAI.counter = max;
+            return;
+        }
+
+        this.brawlAI.counter -= 1;
+        if (this.brawlAI.counter < 0) {
+            this.brawlAI.counter = this.brawlAI.max;
+            var room = findInWhatRoom(this);
+            var roomsWithPeople = connectedRoomsWithPeople(room);
+            var randomConnectedRoom;
+            if (roomsWithPeople) {
+                randomConnectedRoom = roomsWithPeople[Math.floor(Math.random() * roomsWithPeople.length)];
+            } else {
+                randomConnectedRoom = room.connections[Math.floor(Math.random() * room.connections.length)];
+            }
+            executeMove(this, randomConnectedRoom);
+        }
+    }
+}
+
 
 const Health = (superclass) => class extends superclass {
     constructor(data) {
@@ -1099,7 +1131,7 @@ var placeAliensRandomly = function() {
     var amount = 1; //Math.floor(Math.random() * 4);
     console.log('placing ' + amount + " aliens");
     _.each(new Array(amount), function(unused, idx) {
-        class Alien extends mix(Entity).with(Render, Walk, Health, Brawl, BrawlAI, ActionQueue) {}
+        class Alien extends mix(Entity).with(Render, Walk, Health, Brawl, BrawlAI, HuntAI, ActionQueue) {}
 
         var alien = new Alien({
             name: "Alien" + idx,
