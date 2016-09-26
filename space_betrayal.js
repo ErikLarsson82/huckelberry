@@ -10,7 +10,7 @@ var DISABLE_RENDER = false;
 
 var SCENARIO = false;
 
-var DEBUG_SEED = false;
+var DEBUG_SEED = 430;
 
 var LOCKED = "Locked";
 
@@ -55,6 +55,8 @@ var alienImg = new Image();
 alienImg.src = "alien.png";
 var alienBrawlImg = new Image();
 alienBrawlImg.src = "alien_brawl.png";
+var alienWalkingImg = new Image();
+alienWalkingImg.src = "alien_walking.png";
 var alienBrawlPunchingImg = new Image();
 alienBrawlPunchingImg.src = "alien_brawl_punching.png";
 var alienUnconsciousImg = new Image();
@@ -487,11 +489,11 @@ const Brawl = (superclass) => class extends superclass {
                             dmg = this.inventory[0].dmg || 0;
                         }
                         whom.hurt(dmg);
-                        object.punching = true;
+                        this.punching = true;
                     }
                 } else if (counter < 0) {
                     counter = 100;
-                    object.punching = false;
+                    this.punching = false;
                 }
                 return true;
             }.bind(this)
@@ -504,50 +506,41 @@ const BrawlAI = (superclass) => class extends superclass {
         super(data);
     }
     tick() {
-        super.tick();
+        if (this.queue.length === 0) {
 
-        var opponents = _.filter(findInWhatRoom(this).entities, function(entity) {
-            return entity.health && entity !== this && entity.friend && !entity.unconsius;
-        }.bind(this));
-        var opponent = opponents[Math.floor(Math.random() * opponents.length)];
-        if (opponent) {
-            if (this.queue.length === 0) this.addToQueue(this.generateBrawlAction(opponent));
-        } else {
-            this.brawling = false;
-            this.punching = false;
-            this.queue.length = 0;
+            var opponents = _.filter(findInWhatRoom(this).entities, function(entity) {
+                return entity.health && entity !== this && entity.friend && !entity.unconsius;
+            }.bind(this));
+            var opponent = opponents[Math.floor(Math.random() * opponents.length)];
+            if (opponent) {
+                if (this.queue.length === 0) this.addToQueue(this.generateBrawlAction(opponent));
+            } else {
+                this.brawling = false;
+                this.punching = false;
+                this.queue.length = 0;
+            }
         }
+        super.tick();
     }
 }
 
 const HuntAI = (superclass) => class extends superclass {
-    constructor(data) {
-        super(data);
-        this.brawlAI = {
-            max: 100,
-            counter: 100
-        }
-    }
     tick() {
         super.tick();
-
+        
         if (this.brawling || this.unconsius) {
-            this.brawlAI.counter = max;
             return;
         }
 
-        this.brawlAI.counter -= 1;
-        if (this.brawlAI.counter < 0) {
-            this.brawlAI.counter = this.brawlAI.max;
+        if (this.queue.length === 0) {
+
             var room = findInWhatRoom(this);
             var roomsWithPeople = connectedRoomsWithPeople(room);
-            var randomConnectedRoom;
             if (roomsWithPeople) {
-                randomConnectedRoom = roomsWithPeople[Math.floor(Math.random() * roomsWithPeople.length)];
+                this.addToQueue(this.generateWalkAction(roomsWithPeople[Math.floor(Math.random() * roomsWithPeople.length)]));
             } else {
-                randomConnectedRoom = room.connections[Math.floor(Math.random() * room.connections.length)];
+                this.addToQueue(this.generateWalkAction(room.connections[Math.floor(Math.random() * room.connections.length)]));
             }
-            executeMove(this, randomConnectedRoom);
         }
     }
 }
@@ -566,7 +559,7 @@ const Health = (superclass) => class extends superclass {
     }
     tick() {
         if (this.health < 1) {
-            resetIfSelected();
+            this.resetIfSelected();
             this.unconsius = true;
         } else {
             super.tick();
@@ -586,9 +579,9 @@ const Render = (superclass) => class extends superclass {
     draw() {
         var img = this.img;
         if (this.walking) img = this.imgWalking;
-        /*if (object.brawling) img = this.imgBrawling;
-        if (object.punching) img = this.imgPunching;
-        if (object.unconsius) img = this.imgUnconscious;*/
+        if (this.brawling) img = this.imgBrawling;
+        if (this.punching) img = this.imgPunching;
+        if (this.unconsius) img = this.imgUnconscious;
 
         context.drawImage(img, this.dimensions[0], this.dimensions[1]);
         var name = "-";
@@ -632,9 +625,14 @@ class Player extends mix(Entity).with(Render, Select, Walk, Health, Brawl, Actio
 
 var player = new Player({
     name: "You",
+    friend: true,
     img: linkImg,
     imgWalking: linkWalkingImg,
+    imgBrawling: linkBrawlImg,
+    imgPunching: linkBrawlPunchingImg,
+    imgUnconscious: linkUnconsciousImg,
     dimensions: [0, 0, 33, 33],
+    punchingPower: 1,
     health: 9,
     hoverCondition: function() {
         return true; //this.isConsciousable && !this.unconsius && !mouseDoorToggleMode;
@@ -1095,6 +1093,15 @@ _.each(rooms, function(room) {
 })
 
 // Generic functions
+function connectedRoomsWithPeople(room) {
+    var rooms = _.filter(room.connections, function(room) {
+        return _.filter(room.entities, function(entity) {
+            return (entity.friend);
+        }).length > 0;
+    });
+    return rooms.length > 0 && rooms;
+}
+
 function healWithMedkitIfApplicable(who, whom) {
     if (who.isInventoryable && who.inventory.length > 0 &&
                who.inventory[0].healing) {
@@ -1131,14 +1138,18 @@ var placeAliensRandomly = function() {
     var amount = 1; //Math.floor(Math.random() * 4);
     console.log('placing ' + amount + " aliens");
     _.each(new Array(amount), function(unused, idx) {
-        class Alien extends mix(Entity).with(Render, Walk, Health, Brawl, BrawlAI, HuntAI, ActionQueue) {}
+        class Alien extends mix(Entity).with(Render, Walk, Health, Brawl, HuntAI, BrawlAI, ActionQueue) {}
 
         var alien = new Alien({
             name: "Alien" + idx,
             img: alienImg,
-            imgWalking: linkWalkingImg,
+            imgWalking: alienWalkingImg,
+            imgBrawling: alienBrawlImg,
+            imgPunching: alienBrawlPunchingImg,
+            imgUnconscious: alienUnconsciousImg,
             dimensions: [0, 0, 33, 33],
-            health: 9
+            health: 9,
+            punchingPower: 4
         });
         /*var alien = new Entity();
         _.extend(alien, {
