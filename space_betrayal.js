@@ -1,6 +1,16 @@
-var version = "0.2";
+var version = "0.4";
 
 console.log('Playing version ' + version);
+
+function getParameterByName(name, url) {
+    if (!url) url = window.location.href;
+    name = name.replace(/[\[\]]/g, "\\$&");
+    var regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)"),
+        results = regex.exec(url);
+    if (!results) return null;
+    if (!results[2]) return '';
+    return decodeURIComponent(results[2].replace(/\+/g, " "));
+}
 
 var INTERVAL_DURATION = 1000/60;
 
@@ -10,7 +20,7 @@ var DISABLE_RENDER = false;
 
 var SCENARIO = false;
 
-var DEBUG_SEED = 6950;
+var DEBUG_SEED = parseInt(getParameterByName('seed'));
 
 var LOCKED = "Locked";
 
@@ -167,13 +177,10 @@ function resetMousePress() {
 function leftClick(e) {
     var hits = detectHits(crew, e);
 
-    var eligableHits = _.filter(hits, function(hit) {
-        return true; //(hit.isConsciousable && !hit.unconsius)
-    })
-    if (eligableHits.length > 0) {
+    if (hits.length > 0) {
         resetMousePress();
-        mousePressedPerson = eligableHits[0];
-        eligableHits[0].selected = true;
+        mousePressedPerson = hits[0];
+        hits[0].selected = true;
     } else {
         resetMousePress();
     }
@@ -333,7 +340,7 @@ function mixinWalkerAI(object) {
 }
 
 // Enabled mixin syntax like this: class Alien extends mix(GameObject).with(Health, AlienAI, Walk) { 
-let mix = (superclass) => new MixinBuilder(superclass);
+const mix = (superclass) => new MixinBuilder(superclass);
 
 class MixinBuilder {  
   constructor(superclass) {
@@ -356,7 +363,7 @@ class Entity {
     draw() {}
 }
 
-let ActionQueue = (superclass) => class extends superclass {
+const ActionQueue = (superclass) => class extends superclass {
     constructor(data) {
         super(data);
         this.queue = [];
@@ -514,9 +521,8 @@ const BrawlAI = (superclass) => class extends superclass {
             return entity.health && entity !== this && entity.friend && !entity.unconsius;
         }.bind(this));
         var opponent = opponents[Math.floor(Math.random() * opponents.length)];
-        let gotSomeQueueAndItsNotBrawling = (this.queue.length > 0 && this.queue[0].name !== "Brawl");
-        let isBrawling = (this.queue.length > 0 && this.queue[0].name === "Brawl");
-        console.log(opponent, gotSomeQueueAndItsNotBrawling, isBrawling, this.queue);
+        const gotSomeQueueAndItsNotBrawling = (this.queue.length > 0 && this.queue[0].name !== "Brawl");
+        const isBrawling = (this.queue.length > 0 && this.queue[0].name === "Brawl");
         if (opponent) {
             if (gotSomeQueueAndItsNotBrawling) {
                 this.removeAllQueue();
@@ -1125,7 +1131,7 @@ var placeAliensRandomly = function() {
             imgPunching: alienBrawlPunchingImg,
             imgUnconscious: alienUnconsciousImg,
             dimensions: [0, 0, 33, 33],
-            health: 1,
+            health: 10,
             punchingPower: 3,
             enemy: true,
             hoverCondition: function() {
@@ -1449,6 +1455,11 @@ var render = function() {
     _.each(gameObjects, function(object) {
         object.draw();
     });
+
+    context.fillStyle = "white";
+    context.font = "20px Arial";
+    context.fillText("Version: " + version, 800, 750);
+
 }
 
 setInterval(function() {
