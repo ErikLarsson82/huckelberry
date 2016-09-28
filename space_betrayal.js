@@ -1,4 +1,4 @@
-var version = "0.3";
+var version = "0.4";
 
 console.log('Playing version ' + version);
 
@@ -65,6 +65,8 @@ var alienImg = new Image();
 alienImg.src = "alien.png";
 var alienBrawlImg = new Image();
 alienBrawlImg.src = "alien_brawl.png";
+var alienWalkingImg = new Image();
+alienWalkingImg.src = "alien_walking.png";
 var alienBrawlPunchingImg = new Image();
 alienBrawlPunchingImg.src = "alien_brawl_punching.png";
 var alienUnconsciousImg = new Image();
@@ -135,10 +137,11 @@ document.addEventListener("mousemove", function(e) {
         hits = detectHits(ship.rooms, e);
         _.each(ship.rooms, function(room) {
             hits = hits.concat(detectHits(room.entities, e))
-        });
+        });        
     }
 
     _.each(hits, function(hit) {
+        if (!hit.isHoverable) return;
         hit.hover = hit.hoverCondition();
     });
 
@@ -174,13 +177,10 @@ function resetMousePress() {
 function leftClick(e) {
     var hits = detectHits(crew, e);
 
-    var eligableHits = _.filter(hits, function(hit) {
-        return (hit.isConsciousable && !hit.unconsius)
-    })
-    if (eligableHits.length > 0) {
+    if (hits.length > 0) {
         resetMousePress();
-        mousePressedPerson = eligableHits[0];
-        eligableHits[0].selected = true;
+        mousePressedPerson = hits[0];
+        hits[0].selected = true;
     } else {
         resetMousePress();
     }
@@ -203,7 +203,9 @@ function rightClickWhilePersonSelected(e) {
             });
 
         } else if (hit.enemy) {
-            mousePressedPerson.isBrawlable &&  mousePressedPerson.addToQueue(mousePressedPerson.generateBrawlAction(hit))
+            if (hit.isConsciousable && !hit.unconsius) {
+                mousePressedPerson.isBrawlable && mousePressedPerson.addToQueue(mousePressedPerson.generateBrawlAction(hit))
+            }
         } else if (hit.friend && isInSameRoom(mousePressedPerson, hit)) {
             if (hit.isConsciousable && hit.unconsius) {
                 hit.unconsius = false;
@@ -246,7 +248,7 @@ function genericMousePress(e) {
         leftClick(e);
     } else if (e.button === 2) {
         if (mousePressedPerson) {
-            rightClickWhilePersonSelected(e);
+            rightClickWhilePersonSelected(e);  
         } else if (mouseDoorToggleMode) {
             rightClickWhileDoorToggleMode(e);
         }
@@ -321,98 +323,107 @@ var DamageTick = function(x, y, amount, color) {
     return ticker;
 }
 
-function hunterAI(object) {
-    var preserveTick = object.tick || function() {};
+function mixinWalkerAI(object) {
+    var preserveTick = object.tick;
     var max = 100;
     var counter = max;
     object.tick = function() {
-        preserveTick && preserveTick.call(object);
-
-        if (this.brawling || this.unconsius) {
-            counter = max;
-            return;
-        }
-
+        preserveTick && preserveTick();
         counter -= 1;
         if (counter < 0) {
             counter = max;
             var room = findInWhatRoom(object);
-            var roomsWithPeople = connectedRoomsWithPeople(room);
-            var randomConnectedRoom;
-            if (roomsWithPeople) {
-                randomConnectedRoom = roomsWithPeople[Math.floor(Math.random() * roomsWithPeople.length)];
-            } else {
-                randomConnectedRoom = room.connections[Math.floor(Math.random() * room.connections.length)];
-            }
+            var randomConnectedRoom = room.connections[Math.floor(Math.random() * room.connections.length)];
             executeMove(object, randomConnectedRoom);
         }
     }
 }
 
-function tickable(object, inputFunc) {
-    object.tick = inputFunc;
+// Enabled mixin syntax like this: class Alien extends mix(GameObject).with(Health, AlienAI, Walk) { 
+const mix = (superclass) => new MixinBuilder(superclass);
+
+class MixinBuilder {  
+  constructor(superclass) {
+    this.superclass = superclass;
+  }
+
+  with(...mixins) { 
+    return mixins.reduce((c, mixin) => mixin(c), this.superclass);
+  }
 }
 
-function renderable(object) {
-    object.draw = function() {
-        var img = this.img;
-        if (object.walking) img = this.imgWalking;
-        if (object.brawling) img = this.imgBrawling;
-        if (object.punching) img = this.imgPunching;
-        if (object.unconsius) img = this.imgUnconscious;
-
-        context.drawImage(img, this.dimensions[0], this.dimensions[1]);
-
-        if (this.profile && mousePressedPerson === this) {
-            context.drawImage(this.profile, 90, 520)
+class Entity {
+    constructor(data) {
+        _.extend(this, data);
+        if (data.tick) {
+            this.tick = data.tick;
         }
+    }
+    tick() {}
+    draw() {}
+}
+
+const ActionQueue = (superclass) => class extends superclass {
+    constructor(data) {
+        super(data);
+        this.queue = [];
+        this.actions = [];
+    }
+    addToQueue(action) {
+        this.queue.push(action);
+    };
+    removeAllQueue() {
+        if (this.queue[0]) {
+            this.queue[0].abort.call(this);
+        }
+        this.queue = [];
+    };
+    tick() {
+        if (this.queue.length > 0) {
+            var currentQueueItem = this.queue[0];
+            var result = currentQueueItem.tick(currentQueueItem.duration);
+            if (result !== true) {
+                this.queue.shift();
+            } else {
+                currentQueueItem.duration = currentQueueItem.duration - 1;
+                if (currentQueueItem.duration < 0) {
+                    this.queue.shift();
+                }
+            }
+        }
+        super.tick()
     }
 }
 
-function selectable(object, condition) {
-    object.hover = false;
-    object.selected = false;
-    object.hoverCondition = condition;
-    var stowDraw = object.draw || function() {};
-    object.draw = function() {
-        stowDraw.call(object);
-        if (object.selected) {
-            context.beginPath();
-            context.strokeStyle = "#f00";
-            context.rect.apply(context, object.dimensions);
-            context.stroke();
-        } else if (object.hover) {
-            context.beginPath();
-            context.strokeStyle = "#00f";
-            context.rect.apply(context, object.dimensions);
-            context.stroke();
-        }
+const Action = (superclass) => class extends superclass {
+    constructor(data) {
+        super(data);
+        this.isActionable = true;
+        this.action = data.action;
     }
 }
 
-function actionable(object, action) {
-    object.isActionable = true;
-    object.action = action;
-}
-
-function walkable(object) {
-    object.walking = false;
-    object.isWalkable = true;
-    object.generateWalkAction = function(where) {
+const Walk = (superclass) => class extends superclass {
+    constructor(data) {
+        super(data);
+        this.walking = false;
+        this.isWalkable = true;
+    }
+    generateWalkAction(where) {
         return {
             where: where,
-            who: object,
+            who: this,
             name: "Move",
             duration: 95,
             abort: function() {
                 this.walking = false;
             },
-            event: function(duration) {
-                var door = findDoor(findInWhatRoom(object), where);
+            tick: function(duration) {
+                var door = findDoor(findInWhatRoom(this), where);
                 if (!door) {
                     return false;
                 }
-                if (isLegalMove(object, where) && !door.locked) {
+                if (isLegalMove(this, where) && !door.locked) {
                     door.open = true;
                 } else {
                     this.walking = false;
@@ -426,46 +437,23 @@ function walkable(object) {
                     return executeMove(this, where);
                 }
                 return true;
-            }.bind(object)
+            }.bind(this)
         }
     }
 }
 
-function healthable(object, health) {
-    object.maxHealth = health;
-    object.health = health;
-    object.unconsius = false;
-    object.isConsciousable = true;
-    var storeTick = object.tick || function() {};
-    function resetIfSelected() {
-        if (object === mousePressedPerson) resetMousePress();
+const Brawl = (superclass) => class extends superclass {
+    constructor(data) {
+        super(data);
+        this.punchingPower = data.punchingPower;
+        this.brawling = false;
+        this.punching = false;
+        this.isBrawlable = true;
     }
-    object.tick = function() {
-        if (object.health < 1) {
-            resetIfSelected();
-            object.unconsius = true;
-        } else {
-            storeTick.call(object);
-        }
-    };
-    object.hurt = function(dmg) {
-        var x = object.dimensions[0] + Math.floor(Math.random() * 5);
-        var y = object.dimensions[1] - 8 - Math.floor(Math.random() * 10);
-        gameObjects.push(new DamageTick(x, y, -dmg));
-        object.health = object.health - dmg;
-    }
-}
-
-function brawlable(object, punchingPower, cooldown) {
-    object.punchingPower = punchingPower;
-    object.cooldown = cooldown;
-    object.brawling = false;
-    object.punching = false;
-    object.isBrawlable = true;
-    object.generateBrawlAction = function(whom) {
-        var counter = object.cooldown || 100;
+    generateBrawlAction(whom) {
+        var counter = 100;
         return {
-            who: object,
+            who: this,
             target: whom,
             name: "Brawl",
             duration: INFINITE,
@@ -473,7 +461,7 @@ function brawlable(object, punchingPower, cooldown) {
                 this.brawling = false;
                 this.punching = false;
             },
-            event: function(duration) {
+            tick: function(duration) {
                 counter -= 1;
                 this.brawling = true;
                 if (counter === 20) {
@@ -487,33 +475,34 @@ function brawlable(object, punchingPower, cooldown) {
                             dmg = this.inventory[0].dmg || 0;
                         }
                         whom.hurt(dmg);
-                        object.punching = true;
+                        this.punching = true;
                     }
                 } else if (counter < 0) {
-                    counter = object.cooldown;
-                    object.punching = false;
+                    counter = 100;
+                    this.punching = false;
                 }
                 return true;
-            }.bind(object)
+            }.bind(this)
         }
     }
 }
 
-function inventoryable(object) {
-    object.isInventoryable = true;
-    object.inventory = [];
+const Inventory = (superclass) => class extends superclass { 
+    constructor(data) {
+        super(data);
+        this.isInventoryable = true;
+        this.inventory = [];
+    }
+    draw() {
+        super.draw();
 
-    var storeDraw = object.draw || function() {}
-    object.draw = function() {
-        storeDraw.call(object);
-
-        if (mousePressedPerson === object) {
+        if (mousePressedPerson === this) {
             context.fillStyle = "gray";
             context.fillRect(800, 550, 180, 150)
             context.fillStyle = "white";
             context.fillText("Inventory (C to cycle):", 810, 570);
 
-            _.each(object.inventory, function(item, idx) {
+            _.each(this.inventory, function(item, idx) {
                 var append = "";
                 if (idx === 0) append = " [ACTIVE]";
                 context.fillText(item.name + append, 810, 570 + 20 + (idx * 20));
@@ -522,150 +511,193 @@ function inventoryable(object) {
     }
 }
 
-function brawlAI(object) {
-    var storeTick = object.tick;
-    object.tick = function() {
+
+const BrawlAI = (superclass) => class extends superclass {
+    constructor(data) {
+        super(data);
+    }
+    tick() {
         var opponents = _.filter(findInWhatRoom(this).entities, function(entity) {
             return entity.health && entity !== this && entity.friend && !entity.unconsius;
         }.bind(this));
         var opponent = opponents[Math.floor(Math.random() * opponents.length)];
-
+        const gotSomeQueueAndItsNotBrawling = (this.queue.length > 0 && this.queue[0].name !== "Brawl");
+        const isBrawling = (this.queue.length > 0 && this.queue[0].name === "Brawl");
         if (opponent) {
-            if (this.queue.length === 0) this.addToQueue(this.generateBrawlAction(opponent));
-        } else {
-            this.brawling = false;
-            this.punching = false;
-            this.queue.length = 0;
-        }
-        storeTick.call(object);
-    }
-}
-
-function actionQueueAble(object) {
-    object.queue = [];
-    object.addToQueue = function(action) {
-        this.queue.push(action);
-    };
-    object.removeAllQueue = function() {
-        if (this.queue[0]) {
-            this.queue[0].abort.call(this);
-        }
-        this.queue = [];
-    };
-    var storedTick = object.tick;
-    object.tick = function() {
-        if (this.queue.length > 0) {
-            var currentQueue = this.queue[0];
-            var result = currentQueue.event(currentQueue.duration);
-            if (result !== true) {
-                this.queue.shift();
-            } else {
-                currentQueue.duration = currentQueue.duration - 1;
-                if (currentQueue.duration < 0) {
-                    this.queue.shift();
-                }
+            if (gotSomeQueueAndItsNotBrawling) {
+                this.removeAllQueue();
+            }
+            if (!isBrawling) {
+                this.addToQueue(this.generateBrawlAction(opponent));
             }
         }
-        storedTick && storedTick();
+        super.tick();
+    }
+}
+
+const HuntAI = (superclass) => class extends superclass {
+    tick() {
+        if (this.queue.length === 0) {
+            var room = findInWhatRoom(this);
+            var roomsWithPeople = connectedRoomsWithPeople(room);
+            if (roomsWithPeople) {
+                this.addToQueue(this.generateWalkAction(roomsWithPeople[Math.floor(Math.random() * roomsWithPeople.length)]));
+            } else {
+                this.addToQueue(this.generateWalkAction(room.connections[Math.floor(Math.random() * room.connections.length)]));
+            }
+        }
+        super.tick();
     }
 }
 
 
-var Entity = function() {
-    this.actions = [];
+const Health = (superclass) => class extends superclass {
+    constructor(data) {
+        super(data);
+        this.maxHealth = data.health;
+        this.health = data.health;
+        this.unconsius = false;
+        this.isConsciousable = true;
+    }
+    resetIfSelected() {
+        if (this === mousePressedPerson) resetMousePress();
+    }
+    tick() {
+        if (this.health < 1) {
+            this.resetIfSelected();
+            this.unconsius = true;
+            this.queue.length = 0;
+        } else {
+            super.tick();
+        }
+    }
+    hurt(dmg) {
+        var x = this.dimensions[0] + Math.floor(Math.random() * 5);
+        var y = this.dimensions[1] - 8 - Math.floor(Math.random() * 10);
+        gameObjects.push(new DamageTick(x, y, -dmg));
+        this.health = this.health - dmg;
+    }
 }
 
-var player = new Entity();
-_.extend(player, {
+
+
+const Render = (superclass) => class extends superclass {
+    draw() {
+        var img = this.img;
+        if (this.walking) img = this.imgWalking;
+        if (this.brawling) img = this.imgBrawling;
+        if (this.punching) img = this.imgPunching;
+        if (this.unconsius) img = this.imgUnconscious;
+
+        context.drawImage(img, this.dimensions[0], this.dimensions[1]);
+        var name = "-";
+        if (this.queue && this.queue.length > 0) {
+            name = this.queue[0].name;
+        }
+        context.fillStyle = "white";
+        context.fillText(name, this.dimensions[0], this.dimensions[1] + 45);
+
+        if (this.profile && mousePressedPerson === this) {
+            context.drawImage(this.profile, 90, 520)
+        }
+    }
+}
+
+
+const Select = (superclass) => class extends superclass {
+    constructor(data) {
+        super(data);
+        if (data && !data.hoverCondition) console.warn('Using Select without hoverCondition');
+        this.hover = false;
+        this.isHoverable = true;
+        this.selected = false;
+    }
+    draw() {
+        super.draw();
+        if (this.selected) {
+            context.beginPath();
+            context.strokeStyle = "#f00";
+            context.rect.apply(context, this.dimensions);
+            context.stroke();
+        } else if (this.hover) {
+            context.beginPath();
+            context.strokeStyle = "#00f";
+            context.rect.apply(context, this.dimensions);
+            context.stroke();
+        }
+    }
+}
+
+class Player extends mix(Entity).with(Render, Select, Inventory, Walk, Brawl, ActionQueue, Health) {}
+class Medic extends mix(Entity).with(Render, Select, Inventory, Walk, Brawl, ActionQueue, Health) {}
+
+class Alien extends mix(Entity).with(Render, Select, Walk, Brawl, HuntAI, BrawlAI, ActionQueue, Health) {}
+class Bandit extends mix(Entity).with(Render, Select, Brawl, BrawlAI, ActionQueue, Health) {}
+
+class Crate extends mix(Entity).with(Render, Select, Inventory) {}
+class ActionStation extends mix(Entity).with(Render, Select, Action) {}
+
+var player = new Player({
     name: "You",
     friend: true,
-    profile: profile1,
     img: linkImg,
+    profile: profile1,
     imgWalking: linkWalkingImg,
     imgBrawling: linkBrawlImg,
     imgPunching: linkBrawlPunchingImg,
     imgUnconscious: linkUnconsciousImg,
-    dimensions: [0, 0, 33, 33]
-})
-tickable(player, function() {});
-renderable(player);
-selectable(player, function() {
-    return this.isConsciousable && !this.unconsius && !mouseDoorToggleMode;
+    dimensions: [0, 0, 33, 33],
+    punchingPower: 2,
+    health: 10,
+    hoverCondition: function() {
+        return this.isConsciousable && !this.unconsius && !mouseDoorToggleMode;
+    }
 });
-walkable(player);
-actionQueueAble(player);
-brawlable(player, 3, 70);
-inventoryable(player);
-healthable(player, 9);
 
-
-var medic = new Entity();
-_.extend(medic, {
+var medic = new Medic({
     name: "Medic",
     friend: true,
-    profile: profile2,
     img: linkPurpleImg,
+    profile: profile1,
     imgWalking: linkPurpleWalkingImg,
     imgBrawling: linkBrawlImg,
     imgPunching: linkBrawlPunchingImg,
     imgUnconscious: linkUnconsciousImg,
-    dimensions: [0, 0, 33, 33]
-})
-tickable(medic, function() {});
-renderable(medic);
-selectable(medic, function() {
-    return this.isConsciousable && !this.unconsius && !mouseDoorToggleMode;
+    dimensions: [0, 0, 33, 33],
+    punchingPower: 2,
+    health: 10,
+    hoverCondition: function() {
+        return this.isConsciousable && !this.unconsius && !mouseDoorToggleMode;
+    }
 });
-walkable(medic);
-actionQueueAble(medic);
-brawlable(medic, 2, 100);
-inventoryable(medic);
-healthable(medic, 12);
-
 
 var crates = [];
 _.each(new Array(3), function(unused, idx) {
-    var crate = new Entity();
-    _.extend(crate, {
+    var crate = new Crate({
         name: "Crate " + idx,
         img: crateImg,
-        dimensions: [0, 0, 33, 33]
-    })
-    renderable(crate);
-    selectable(crate, function() {
-        return !!mousePressedPerson;
+        dimensions: [0, 0, 33, 33],
+        hoverCondition: () => !!mousePressedPerson
     });
-    inventoryable(crate);
-
     crates.push(crate);
 })
 
-var medbays = [];
-var medbay = new Entity();
-_.extend(medbay, {
-    name: "Medbay",
-    img: medstationImg,
-    dimensions: [0, 0, 33, 33]
-})
-renderable(medbay);
-selectable(medbay, function() {
-    return !!mousePressedPerson;
-});
-inventoryable(medbay);
-medbays.push(medbay);
+var medbays = [
+    new Crate({
+        name: "Medbay",
+        img: medstationImg,
+        dimensions: [0, 0, 33, 33],
+        hoverCondition: () => !!mousePressedPerson
+    })
+];
 
-var controlpanel = new Entity();
-_.extend(controlpanel, {
+
+var controlpanel = new ActionStation({
     name: "controlpanel",
     img: controlpanelImg,
-    dimensions: [0, 0, 33, 33]
-})
-renderable(controlpanel);
-selectable(controlpanel, function() {
-    return !!mousePressedPerson;
-});
-actionable(controlpanel, function(whom) {
-    if (isInSameRoom(whom, controlpanel)) controlpanelPopup.open();
+    dimensions: [0, 0, 33, 33],
+    hoverCondition: () => !!mousePressedPerson,
+    action: function(whom) { if (isInSameRoom(whom, this)) controlpanelPopup.open() }
 });
 
 var Item = function() {};
@@ -693,10 +725,9 @@ var healthkit2 = new Item();
 healthkit2.name = "Health kit";
 healthkit2.healing = true;
 
-
-medbay.inventory.push(scannerItem);
-medbay.inventory.push(healthkit1);
-medbay.inventory.push(healthkit2);
+medbays[0].inventory.push(scannerItem);
+medbays[0].inventory.push(healthkit1);
+medbays[0].inventory.push(healthkit2);
 
 
 var GameObject = function(tick, visualTick, draw) {
@@ -886,7 +917,7 @@ controlpanelPopup.draw = function() {
 
     context.fillStyle = "#cccccc";
     context.fillRect(300, 250, 200, 100);
-
+    
     context.fillStyle = "#cccccc";
     context.fillRect(550, 250, 200, 100);
 
@@ -923,93 +954,110 @@ toolTip.draw = function() {
 }
 gameObjects.push(toolTip);
 
-// Ship
-var Room = function(name, dimensions) {
-    this.name = name;
-    this.connections = [];
-    this.entities = [];
-    this.dimensions = dimensions;
-    this.activated = 0;
-    this.visualTick = function() {
-        if (this.activated > 0) this.activated -= 1;
+class Room extends mix(Entity).with(Select) {
+    constructor(data) {
+        super(data);
+        this.name = name;
+        this.connections = [];
+        this.entities = [];
+        this.dimensions = data.dimensions;
+        this.activated = 0;
+        this.visualTick = function() {
+            if (this.activated > 0) this.activated -= 1;
+        }
     }
-    selectable(this, function() {
-        if (!mousePressedPerson) return;
-
-        var childrenHovered = _.filter(this.entities, function(entity) {
-            return entity.hover;
-        });
-
-        return !!mousePressedPerson && childrenHovered.length === 0;
-    });
 }
 
-var Door = function(from, to, orientation, dimensions, locked, open) {
-    this.connections = [from, to];
-    this.orientation = orientation;
-    this.dimensions = dimensions;
-    this.locked = locked;
-    this.open = open;
 
-    var door = {
-        true: { // door is open
-            true: {
-                true: door_open_vertical,
-                false: door_open_horizontal
+class Door extends mix(Entity).with(Select, Action) {
+    constructor(data, from, to, orientation, dimensions, locked, open) {
+        super(data);
+        this.connections = [from, to];
+        this.orientation = orientation;
+        this.dimensions = dimensions;
+        this.locked = locked;
+        this.open = open;
+        this.doorStates = {
+            true: { // door is open
+                true: {
+                    true: door_open_vertical,
+                    false: door_open_horizontal
+                },
+                false: {
+                    true: door_open_vertical,
+                    false: door_open_horizontal
+                }
             },
-            false: {
-                true: door_open_vertical,
-                false: door_open_horizontal
-            }
-        },
-        false: { // closed
-            true: { //locked
-                true: door_locked_closed_vertical,
-                false: door_locked_closed_horizontal
-            },
-            false: { //unlocked
-                true: door_unlocked_closed_vertical,
-                false: door_unlocked_closed_horizontal
+            false: { // closed
+                true: { //locked
+                    true: door_locked_closed_vertical,
+                    false: door_locked_closed_horizontal
+                },
+                false: { //unlocked
+                    true: door_unlocked_closed_vertical,
+                    false: door_unlocked_closed_horizontal
+                }
             }
         }
     }
-
-    this.draw = function() {
-        context.drawImage(door[this.open][this.locked][this.orientation], dimensions[0], dimensions[1]);
+    draw() {
+        super.draw();
+        context.drawImage(this.doorStates[this.open][this.locked][this.orientation], this.dimensions[0], this.dimensions[1]);
     }
-    selectable(this, function() {
-        return !!mouseDoorToggleMode;
-    });
-
-    actionable(this, function() {
-        this.locked = !this.locked;
-    })
-};
+}
 
 var timesTwo = function(array) {
     return _.map(array, function(item) {
         return item * 2
     })
 }
+var roomHoverConditon = function() { return !!mousePressedPerson; }
+var roomTick = function() {
+    var numberPerRow = 2;
 
-var bridge = new Room("Bridge", timesTwo([148, 114, 215, 96]));
-var medbay = new Room("Medbay", timesTwo([368, 80, 112, 96]));
-var storageroom = new Room("Storageroom", timesTwo([384, 181, 80, 73]));
-var kitchen = new Room("Kitchen", timesTwo([32, 80, 112, 90]));
-var engineroom = new Room("Engineroom", timesTwo([167, 37, 80, 73]));
-var bedroom = new Room("Bedroom", timesTwo([48, 174, 80, 75]));
-var shieldroom = new Room("Shieldroom", timesTwo([251, 37, 80, 73]));
+    if (this.dimensions[2] > 165) {
+        numberPerRow = 4;
+    }
+    if (this.dimensions[2] > 225) {
+        numberPerRow = 8;
+    }
+    _.each(this.entities, function(entity, idx) {
+        entity.dimensions[0] = this.dimensions[0] + 30 + (45 * (idx % numberPerRow));
+        entity.dimensions[1] = this.dimensions[1] + 30 + (45 * Math.floor(idx / numberPerRow));
+    }.bind(this));
+};
+var roomBlob = {
+    hoverCondition: roomHoverConditon,
+    tick: roomTick
+}
+var bridge = new Room(_.extend(roomBlob, { name: "Bridge", dimensions: timesTwo([148, 114, 215, 96])}) );
+var medbay = new Room(_.extend(roomBlob, { name: "Medbay", dimensions: timesTwo([368, 80, 112, 96])}) );
+var storageroom = new Room(_.extend(roomBlob, { name: "Storageroom", dimensions: timesTwo([384, 181, 80, 73])}) );
+var kitchen = new Room(_.extend(roomBlob, { name: "Kitchen", dimensions: timesTwo([32, 80, 112, 90])}) );
+var engineroom = new Room(_.extend(roomBlob, { name: "Engineroom", dimensions: timesTwo([167, 37, 80, 73])}) );
+var bedroom = new Room(_.extend(roomBlob, { name: "Bedroom", dimensions: timesTwo([48, 174, 80, 75])}) );
+var shieldroom = new Room(_.extend(roomBlob, { name: "Shieldroom", dimensions: timesTwo([251, 37, 80, 73])}) );
 //var escapePod1 = new Room("Escape pod 1", timesTwo([66, 33, 43, 43]));
 //var escapePod2 = new Room("Escape pod 2", timesTwo([403, 34, 43, 43]));
 
 var crew = [player, medic] //  , pilot, engineer, warrior];
 
-var door1 = new Door(bedroom, kitchen, false, [112, 324, 48, 48], false, false);
-var door2 = new Door(kitchen, bridge, true, [272, 268, 48, 48], false, false);
-var door3 = new Door(engineroom, bridge, false, [352, 204, 48, 48], false, false);
-var door4 = new Door(engineroom, shieldroom, true, [478, 156, 48, 48], false, false);
-var door5 = new Door(bridge, medbay, true, [710, 284, 48, 48], false, false);
-var door6 = new Door(medbay, storageroom, false, [786, 336, 48, 48], false, false);
+var doorSelectCondition = function() {
+    return !!mouseDoorToggleMode;
+};
+var doorActionCondition = function() {
+    this.locked = !this.locked;
+}
+var doorDataBlob = {
+    hoverCondition: doorSelectCondition,
+    action: doorActionCondition
+}
+var door1 = new Door(doorDataBlob, bedroom, kitchen, false, [112, 324, 48, 48], false, false);
+var door2 = new Door(doorDataBlob, kitchen, bridge, true, [272, 268, 48, 48], false, false);
+var door3 = new Door(doorDataBlob, engineroom, bridge, false, [352, 204, 48, 48], false, false);
+var door4 = new Door(doorDataBlob, engineroom, shieldroom, true, [478, 156, 48, 48], false, false);
+var door5 = new Door(doorDataBlob, bridge, medbay, true, [710, 284, 48, 48], false, false);
+var door6 = new Door(doorDataBlob, medbay, storageroom, false, [786, 336, 48, 48], false, false);
 //var door7 = new Door(kitchen, escapePod1, false, [-100, -100, 48, 48], false, false);
 //var door8 = new Door(medbay, escapePod2, false, [-100, -100, 48, 48], false, false);
 
@@ -1025,22 +1073,9 @@ shieldroom.connections = [engineroom];
 
 var rooms = [bedroom, kitchen, bridge, engineroom, shieldroom, medbay, storageroom];
 
-_.each(rooms, function(room) {
-    tickable(room, function() {
-        var numberPerRow = 2;
-
-        if (this.dimensions[2] > 165) {
-            numberPerRow = 4;
-        }
-        if (this.dimensions[2] > 225) {
-            numberPerRow = 8;
-        }
-        _.each(this.entities, function(entity, idx) {
-            entity.dimensions[0] = room.dimensions[0] + 30 + (45 * (idx % numberPerRow));
-            entity.dimensions[1] = room.dimensions[1] + 30 + (45 * Math.floor(idx / numberPerRow));
-        });
-    });
-})
+/*_.each(rooms, function(room) {
+    tickable(room, 
+})*/
 
 // Generic functions
 function connectedRoomsWithPeople(room) {
@@ -1086,28 +1121,24 @@ var placeCrewRandomly = function() {
 
 var placeAliensRandomly = function() {
     var amount = Math.floor(Math.random() * 4);
-    console.log('placing ' + amount + " aliens");
+    console.log('Placing ' + amount + " aliens");
     _.each(new Array(amount), function(unused, idx) {
-        var alien = new Entity();
-        _.extend(alien, {
+        var alien = new Alien({
             name: "Alien" + idx,
-            enemy: true,
             img: alienImg,
+            imgWalking: alienWalkingImg,
             imgBrawling: alienBrawlImg,
             imgPunching: alienBrawlPunchingImg,
             imgUnconscious: alienUnconsciousImg,
-            dimensions: [0, 0, 33, 33]
-        })
-        renderable(alien);
-        actionQueueAble(alien);
-        brawlable(alien, 3, 110);
-        selectable(alien, function() {
-            return !!mousePressedPerson;
+            dimensions: [0, 0, 33, 33],
+            health: 10,
+            punchingPower: 3,
+            enemy: true,
+            hoverCondition: function() {
+                return this.isConsciousable && !this.unconsius && mousePressedPerson;
+            }
         });
-        healthable(alien, 5);
-        hunterAI(alien);
-        brawlAI(alien);
-
+        
         var roomIndex = Math.floor(Math.random() * rooms.length);
         rooms[roomIndex].entities.push(alien);
     })
@@ -1119,25 +1150,20 @@ var placeBanditsRandomly = function() {
     var roomIndex = Math.floor(Math.random() * rooms.length);
 
     _.each(new Array(amount), function(unused, idx) {
-        var bandit = new Entity();
-        _.extend(bandit, {
+        var bandit = new Bandit({
             name: "Bandit" + idx,
-            enemy: true,
             img: banditImg,
             imgBrawling: banditBrawlImg,
             imgPunching: banditBrawlPunchingImg,
             imgUnconscious: banditUnconsciousImg,
-            dimensions: [0, 0, 33, 33]
-        })
-        renderable(bandit);
-        actionQueueAble(bandit);
-        brawlable(bandit, 5, 140);
-        brawlAI(bandit);
-        selectable(bandit, function() {
-            return !!mousePressedPerson;
+            dimensions: [0, 0, 33, 33],
+            health: 10,
+            punchingPower: 5,
+            enemy: true,
+            hoverCondition: function() {
+                return this.isConsciousable && !this.unconsius && mousePressedPerson;
+            }
         });
-        healthable(bandit, 10);
-
         rooms[roomIndex].entities.push(bandit);
     })
 }
@@ -1148,6 +1174,11 @@ var placeCratesRandomly = function() {
         rooms[index].entities.push(crate);
     });
 };
+
+var placeControlPanelRandomly = function() {
+    var index = Math.floor(Math.random() * rooms.length);
+    rooms[index].entities.push(controlpanel);
+}
 
 var placeMedbayRandomly = function() {
     _.each(medbays, function(medbay) {
@@ -1428,6 +1459,7 @@ var render = function() {
     context.fillStyle = "white";
     context.font = "20px Arial";
     context.fillText("Version: " + version, 800, 750);
+
 }
 
 setInterval(function() {
@@ -1470,7 +1502,7 @@ if (SCENARIO !== false) {
 
     placeItemsRandomly();
 
-    bridge.entities.push(controlpanel);
+    placeControlPanelRandomly();
 
     gameTick();
 }
