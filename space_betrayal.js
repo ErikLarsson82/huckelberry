@@ -10,7 +10,7 @@ var DISABLE_RENDER = false;
 
 var SCENARIO = false;
 
-var DEBUG_SEED = 430;
+var DEBUG_SEED = 2269;
 
 var LOCKED = "Locked";
 
@@ -196,7 +196,9 @@ function rightClickWhilePersonSelected(e) {
             });
 
         } else if (hit.enemy) {
-            mousePressedPerson.isBrawlable &&  mousePressedPerson.addToQueue(mousePressedPerson.generateBrawlAction(hit))
+            if (hit.isConsciousable && !hit.unconsius) {
+                mousePressedPerson.isBrawlable && mousePressedPerson.addToQueue(mousePressedPerson.generateBrawlAction(hit))
+            }
         } else if (hit.friend && isInSameRoom(mousePressedPerson, hit)) {
             if (hit.isConsciousable && hit.unconsius) {
                 hit.unconsius = false;
@@ -340,29 +342,6 @@ function actionable(object, action) {
 }
 
 
-function inventoryable(object) {
-    object.isInventoryable = true;
-    object.inventory = [];
-
-    var storeDraw = object.draw || function() {}
-    object.draw = function() {
-        storeDraw.call(object);
-
-        if (mousePressedPerson === object) {
-            context.fillStyle = "gray";
-            context.fillRect(800, 550, 180, 150)
-            context.fillStyle = "white";
-            context.fillText("Inventory (C to cycle):", 810, 570);
-
-            _.each(object.inventory, function(item, idx) {
-                var append = "";
-                if (idx === 0) append = " [ACTIVE]";
-                context.fillText(item.name + append, 810, 570 + 20 + (idx * 20));
-            })
-        }
-    }
-}
-
 // Enabled mixin syntax like this: class Alien extends mix(GameObject).with(Health, AlienAI, Walk) { 
 let mix = (superclass) => new MixinBuilder(superclass);
 
@@ -501,24 +480,44 @@ const Brawl = (superclass) => class extends superclass {
     }
 }
 
+const Inventory = (superclass) => class extends superclass { 
+    constructor(data) {
+        super(data);
+        this.isInventoryable = true;
+        this.inventory = [];
+    }
+    draw() {
+        super.draw();
+
+        if (mousePressedPerson === this) {
+            context.fillStyle = "gray";
+            context.fillRect(800, 550, 180, 150)
+            context.fillStyle = "white";
+            context.fillText("Inventory (C to cycle):", 810, 570);
+
+            _.each(this.inventory, function(item, idx) {
+                var append = "";
+                if (idx === 0) append = " [ACTIVE]";
+                context.fillText(item.name + append, 810, 570 + 20 + (idx * 20));
+            })
+        }
+    }
+}
+
+
 const BrawlAI = (superclass) => class extends superclass {
     constructor(data) {
         super(data);
     }
     tick() {
-        if (this.queue.length === 0) {
-
-            var opponents = _.filter(findInWhatRoom(this).entities, function(entity) {
-                return entity.health && entity !== this && entity.friend && !entity.unconsius;
-            }.bind(this));
-            var opponent = opponents[Math.floor(Math.random() * opponents.length)];
-            if (opponent) {
-                if (this.queue.length === 0) this.addToQueue(this.generateBrawlAction(opponent));
-            } else {
-                this.brawling = false;
-                this.punching = false;
-                this.queue.length = 0;
-            }
+        var opponents = _.filter(findInWhatRoom(this).entities, function(entity) {
+            return entity.health && entity !== this && entity.friend && !entity.unconsius;
+        }.bind(this));
+        var opponent = opponents[Math.floor(Math.random() * opponents.length)];
+        let gotSomeQueueAndItsNotBrawling = (this.queue.length > 0 && this.queue[0].name !== "Brawl");
+        if (opponent && gotSomeQueueAndItsNotBrawling) {
+            this.removeAllQueue();
+            this.addToQueue(this.generateBrawlAction(opponent));
         }
         super.tick();
     }
@@ -526,14 +525,7 @@ const BrawlAI = (superclass) => class extends superclass {
 
 const HuntAI = (superclass) => class extends superclass {
     tick() {
-        super.tick();
-        
-        if (this.brawling || this.unconsius) {
-            return;
-        }
-
         if (this.queue.length === 0) {
-
             var room = findInWhatRoom(this);
             var roomsWithPeople = connectedRoomsWithPeople(room);
             if (roomsWithPeople) {
@@ -542,6 +534,7 @@ const HuntAI = (superclass) => class extends superclass {
                 this.addToQueue(this.generateWalkAction(room.connections[Math.floor(Math.random() * room.connections.length)]));
             }
         }
+        super.tick();
     }
 }
 
@@ -561,6 +554,7 @@ const Health = (superclass) => class extends superclass {
         if (this.health < 1) {
             this.resetIfSelected();
             this.unconsius = true;
+            this.queue.length = 0;
         } else {
             super.tick();
         }
@@ -591,9 +585,9 @@ const Render = (superclass) => class extends superclass {
         context.fillStyle = "white";
         context.fillText(name, this.dimensions[0], this.dimensions[1] + 45);
 
-        /*if (this.profile && mousePressedPerson === this) {
+        if (this.profile && mousePressedPerson === this) {
             context.drawImage(this.profile, 90, 520)
-        }*/
+        }
     }
 }
 
@@ -601,6 +595,7 @@ const Render = (superclass) => class extends superclass {
 const Select = (superclass) => class extends superclass {
     constructor(data) {
         super(data);
+        if (data && !data.hoverCondition) console.warn('Using Select without hoverCondition');
         this.hover = false;
         this.isHoverable = true;
         this.selected = false;
@@ -621,82 +616,65 @@ const Select = (superclass) => class extends superclass {
     }
 }
 
-class Player extends mix(Entity).with(Render, Select, Walk, Health, Brawl, ActionQueue) {} //, Select, Walk, Brawl, Inventory, Health
+class Player extends mix(Entity).with(Render, Select, Inventory, Walk, Brawl, ActionQueue, Health) {}
+class Medic extends mix(Entity).with(Render, Select, Inventory, Walk, Brawl, ActionQueue, Health) {}
+class Crate extends mix(Entity).with(Render, Select, Inventory) {}
 
 var player = new Player({
     name: "You",
     friend: true,
     img: linkImg,
+    profile: profile1,
     imgWalking: linkWalkingImg,
     imgBrawling: linkBrawlImg,
     imgPunching: linkBrawlPunchingImg,
     imgUnconscious: linkUnconsciousImg,
     dimensions: [0, 0, 33, 33],
-    punchingPower: 1,
-    health: 9,
+    punchingPower: 2,
+    health: 10,
     hoverCondition: function() {
-        return true; //this.isConsciousable && !this.unconsius && !mouseDoorToggleMode;
+        return this.isConsciousable && !this.unconsius && !mouseDoorToggleMode;
     }
 });
-/*
-inventoryable(player);*/
 
-
-/*var medic = new Entity();
-_.extend(medic, {
+var medic = new Medic({
     name: "Medic",
     friend: true,
-    profile: profile2,
     img: linkPurpleImg,
+    profile: profile1,
     imgWalking: linkPurpleWalkingImg,
     imgBrawling: linkBrawlImg,
     imgPunching: linkBrawlPunchingImg,
     imgUnconscious: linkUnconsciousImg,
-    dimensions: [0, 0, 33, 33]
-})
-tickable(medic, function() {});
-renderable(medic);
-selectable(medic, function() {
-    return this.isConsciousable && !this.unconsius && !mouseDoorToggleMode;
+    dimensions: [0, 0, 33, 33],
+    punchingPower: 2,
+    health: 10,
+    hoverCondition: function() {
+        return this.isConsciousable && !this.unconsius && !mouseDoorToggleMode;
+    }
 });
-walkable(medic);
-actionQueueAble(medic);
-brawlable(medic, 2);
-inventoryable(medic);
-healthable(medic, 12);*/
 
-
-/*var crates = [];
+var crates = [];
 _.each(new Array(3), function(unused, idx) {
-    var crate = new Entity();
-    _.extend(crate, {
+    var crate = new Crate({
         name: "Crate " + idx,
         img: crateImg,
-        dimensions: [0, 0, 33, 33]
-    })
-    renderable(crate);
-    selectable(crate, function() {
-        return !!mousePressedPerson;
+        dimensions: [0, 0, 33, 33],
+        hoverCondition: () => !!mousePressedPerson
     });
-    inventoryable(crate);
-
     crates.push(crate);
 })
 
-var medbays = [];
-var medbay = new Entity();
-_.extend(medbay, {
-    name: "Medbay",
-    img: medstationImg,
-    dimensions: [0, 0, 33, 33]
-})
-renderable(medbay);
-selectable(medbay, function() {
-    return !!mousePressedPerson;
-});
-inventoryable(medbay);
-medbays.push(medbay);
+var medbays = [
+    new Crate({
+        name: "Medbay",
+        img: medstationImg,
+        dimensions: [0, 0, 33, 33],
+        hoverCondition: () => !!mousePressedPerson
+    })
+];
 
+/*
 var controlpanel = new Entity();
 _.extend(controlpanel, {
     name: "controlpanel",
@@ -736,10 +714,10 @@ var healthkit2 = new Item();
 healthkit2.name = "Health kit";
 healthkit2.healing = true;
 
-
-//medbay.inventory.push(scannerItem);
-//medbay.inventory.push(healthkit1);
-//medbay.inventory.push(healthkit2);
+//player.inventory.push(pistol)
+medbay.inventory.push(scannerItem);
+medbay.inventory.push(healthkit1);
+medbay.inventory.push(healthkit2);
 
 
 var GameObject = function(tick, visualTick, draw) {
@@ -977,22 +955,8 @@ class Room extends mix(Entity).with(Select) {
         this.visualTick = function() {
             if (this.activated > 0) this.activated -= 1;
         }
-        //this.dimensions = [0,0,0,0]
     }
 }
-//var Room = function(name, dimensions) {
-    
-    //Select(this)
-    /*selectable(this, function() {
-        if (!mousePressedPerson) return;
-
-        var childrenHovered = _.filter(this.entities, function(entity) {
-            return entity.hover;
-        });
-
-        return !!mousePressedPerson && childrenHovered.length === 0;
-    });*/
-//}
 
 var Door = function(from, to, orientation, dimensions, locked, open) {
     this.connections = [from, to];
@@ -1052,7 +1016,7 @@ var shieldroom = new Room({ name: "Shieldroom", dimensions: timesTwo([251, 37, 8
 //var escapePod1 = new Room("Escape pod 1", timesTwo([66, 33, 43, 43]));
 //var escapePod2 = new Room("Escape pod 2", timesTwo([403, 34, 43, 43]));
 
-var crew = [player] //  , pilot, engineer, warrior];
+var crew = [player, medic] //  , pilot, engineer, warrior];
 
 var door1 = new Door(bedroom, kitchen, false, [112, 324, 48, 48], false, false);
 var door2 = new Door(kitchen, bridge, true, [272, 268, 48, 48], false, false);
@@ -1135,10 +1099,10 @@ var placeCrewRandomly = function() {
 }
 
 var placeAliensRandomly = function() {
-    var amount = 1; //Math.floor(Math.random() * 4);
-    console.log('placing ' + amount + " aliens");
+    var amount = 0; //Math.floor(Math.random() * 4);
+    console.log('Placing ' + amount + " aliens");
     _.each(new Array(amount), function(unused, idx) {
-        class Alien extends mix(Entity).with(Render, Walk, Health, Brawl, HuntAI, BrawlAI, ActionQueue) {}
+        class Alien extends mix(Entity).with(Render, Select, Walk, Brawl, HuntAI, BrawlAI, ActionQueue, Health) {}
 
         var alien = new Alien({
             name: "Alien" + idx,
@@ -1148,28 +1112,14 @@ var placeAliensRandomly = function() {
             imgPunching: alienBrawlPunchingImg,
             imgUnconscious: alienUnconsciousImg,
             dimensions: [0, 0, 33, 33],
-            health: 9,
-            punchingPower: 4
-        });
-        /*var alien = new Entity();
-        _.extend(alien, {
-            name: "Alien" + idx,
+            health: 1,
+            punchingPower: 3,
             enemy: true,
-            img: alienImg,
-            imgBrawling: alienBrawlImg,
-            imgPunching: alienBrawlPunchingImg,
-            imgUnconscious: alienUnconsciousImg,
-            dimensions: [0, 0, 33, 33]
-        })
-        renderable(alien);
-        actionQueueAble(alien);
-        brawlable(alien, 3);
-        brawlAI(alien);
-        selectable(alien, function() {
-            return !!mousePressedPerson;
+            hoverCondition: function() {
+                return this.isConsciousable && !this.unconsius && mousePressedPerson;
+            }
         });
-        healthable(alien, 5);*/
-
+        
         var roomIndex = Math.floor(Math.random() * rooms.length);
         rooms[roomIndex].entities.push(alien);
     })
@@ -1206,7 +1156,6 @@ var placeBanditsRandomly = function() {
 }
 
 var placeCratesRandomly = function() {
-    return;
     _.each(crates, function(crate) {
         var index = Math.floor(Math.random() * rooms.length);
         rooms[index].entities.push(crate);
@@ -1214,7 +1163,6 @@ var placeCratesRandomly = function() {
 };
 
 var placeMedbayRandomly = function() {
-    return;
     _.each(medbays, function(medbay) {
         var index = Math.floor(Math.random() * rooms.length);
         rooms[index].entities.push(medbay);
@@ -1222,7 +1170,6 @@ var placeMedbayRandomly = function() {
 };
 
 var placeItemsRandomly = function() {
-    return;
     var inventoryCrew = _.filter(crew, function(person) {
         return person.isInventoryable;
     })
