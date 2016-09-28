@@ -10,7 +10,7 @@ var DISABLE_RENDER = false;
 
 var SCENARIO = false;
 
-var DEBUG_SEED = 2269;
+var DEBUG_SEED = 6950;
 
 var LOCKED = "Locked";
 
@@ -332,16 +332,6 @@ function mixinWalkerAI(object) {
     }
 }
 
-function tickable(object, inputFunc) {
-    object.tick = inputFunc;
-}
-
-function actionable(object, action) {
-    object.isActionable = true;
-    object.action = action;
-}
-
-
 // Enabled mixin syntax like this: class Alien extends mix(GameObject).with(Health, AlienAI, Walk) { 
 let mix = (superclass) => new MixinBuilder(superclass);
 
@@ -358,9 +348,12 @@ class MixinBuilder {
 class Entity {
     constructor(data) {
         _.extend(this, data);
+        if (data.tick) {
+            this.tick = data.tick;
+        }
     }
-    draw() {}
     tick() {}
+    draw() {}
 }
 
 let ActionQueue = (superclass) => class extends superclass {
@@ -395,6 +388,13 @@ let ActionQueue = (superclass) => class extends superclass {
     }
 }
 
+const Action = (superclass) => class extends superclass {
+    constructor(data) {
+        super(data);
+        this.isActionable = true;
+        this.action = data.action;
+    }
+}
 
 const Walk = (superclass) => class extends superclass {
     constructor(data) {
@@ -515,9 +515,15 @@ const BrawlAI = (superclass) => class extends superclass {
         }.bind(this));
         var opponent = opponents[Math.floor(Math.random() * opponents.length)];
         let gotSomeQueueAndItsNotBrawling = (this.queue.length > 0 && this.queue[0].name !== "Brawl");
-        if (opponent && gotSomeQueueAndItsNotBrawling) {
-            this.removeAllQueue();
-            this.addToQueue(this.generateBrawlAction(opponent));
+        let isBrawling = (this.queue.length > 0 && this.queue[0].name === "Brawl");
+        console.log(opponent, gotSomeQueueAndItsNotBrawling, isBrawling, this.queue);
+        if (opponent) {
+            if (gotSomeQueueAndItsNotBrawling) {
+                this.removeAllQueue();
+            }
+            if (!isBrawling) {
+                this.addToQueue(this.generateBrawlAction(opponent));
+            }
         }
         super.tick();
     }
@@ -618,7 +624,12 @@ const Select = (superclass) => class extends superclass {
 
 class Player extends mix(Entity).with(Render, Select, Inventory, Walk, Brawl, ActionQueue, Health) {}
 class Medic extends mix(Entity).with(Render, Select, Inventory, Walk, Brawl, ActionQueue, Health) {}
+
+class Alien extends mix(Entity).with(Render, Select, Walk, Brawl, HuntAI, BrawlAI, ActionQueue, Health) {}
+class Bandit extends mix(Entity).with(Render, Select, Brawl, BrawlAI, ActionQueue, Health) {}
+
 class Crate extends mix(Entity).with(Render, Select, Inventory) {}
+class ActionStation extends mix(Entity).with(Render, Select, Action) {}
 
 var player = new Player({
     name: "You",
@@ -674,20 +685,14 @@ var medbays = [
     })
 ];
 
-/*
-var controlpanel = new Entity();
-_.extend(controlpanel, {
+
+var controlpanel = new ActionStation({
     name: "controlpanel",
     img: controlpanelImg,
-    dimensions: [0, 0, 33, 33]
-})
-renderable(controlpanel);
-selectable(controlpanel, function() {
-    return !!mousePressedPerson;
+    dimensions: [0, 0, 33, 33],
+    hoverCondition: () => !!mousePressedPerson,
+    action: function(whom) { if (isInSameRoom(whom, this)) controlpanelPopup.open() }
 });
-actionable(controlpanel, function(whom) {
-    if (isInSameRoom(whom, controlpanel)) controlpanelPopup.open();
-});*/
 
 var Item = function() {};
 
@@ -714,10 +719,9 @@ var healthkit2 = new Item();
 healthkit2.name = "Health kit";
 healthkit2.healing = true;
 
-//player.inventory.push(pistol)
-medbay.inventory.push(scannerItem);
-medbay.inventory.push(healthkit1);
-medbay.inventory.push(healthkit2);
+medbays[0].inventory.push(scannerItem);
+medbays[0].inventory.push(healthkit1);
+medbays[0].inventory.push(healthkit2);
 
 
 var GameObject = function(tick, visualTick, draw) {
@@ -958,72 +962,96 @@ class Room extends mix(Entity).with(Select) {
     }
 }
 
-var Door = function(from, to, orientation, dimensions, locked, open) {
-    this.connections = [from, to];
-    this.orientation = orientation;
-    this.dimensions = dimensions;
-    this.locked = locked;
-    this.open = open;
 
-    var door = {
-        true: { // door is open
-            true: {
-                true: door_open_vertical,
-                false: door_open_horizontal
+class Door extends mix(Entity).with(Select, Action) {
+    constructor(data, from, to, orientation, dimensions, locked, open) {
+        super(data);
+        this.connections = [from, to];
+        this.orientation = orientation;
+        this.dimensions = dimensions;
+        this.locked = locked;
+        this.open = open;
+        this.doorStates = {
+            true: { // door is open
+                true: {
+                    true: door_open_vertical,
+                    false: door_open_horizontal
+                },
+                false: {
+                    true: door_open_vertical,
+                    false: door_open_horizontal
+                }
             },
-            false: {
-                true: door_open_vertical,
-                false: door_open_horizontal
-            }
-        },
-        false: { // closed
-            true: { //locked
-                true: door_locked_closed_vertical,
-                false: door_locked_closed_horizontal
-            },
-            false: { //unlocked
-                true: door_unlocked_closed_vertical,
-                false: door_unlocked_closed_horizontal
+            false: { // closed
+                true: { //locked
+                    true: door_locked_closed_vertical,
+                    false: door_locked_closed_horizontal
+                },
+                false: { //unlocked
+                    true: door_unlocked_closed_vertical,
+                    false: door_unlocked_closed_horizontal
+                }
             }
         }
     }
-
-    this.draw = function() {
-        context.drawImage(door[this.open][this.locked][this.orientation], dimensions[0], dimensions[1]);
+    draw() {
+        super.draw();
+        context.drawImage(this.doorStates[this.open][this.locked][this.orientation], this.dimensions[0], this.dimensions[1]);
     }
-    /*selectable(this, function() {
-        return !!mouseDoorToggleMode;
-    });
-
-    actionable(this, function() {
-        this.locked = !this.locked;
-    })*/
-};
+}
 
 var timesTwo = function(array) {
     return _.map(array, function(item) {
         return item * 2
     })
 }
-var roomHoverConditon = function() { return true; }
-var bridge = new Room({ name: "Bridge", dimensions: timesTwo([148, 114, 215, 96]), hoverCondition: roomHoverConditon} );
-var medbay = new Room({ name: "Medbay", dimensions: timesTwo([368, 80, 112, 96]), hoverCondition: roomHoverConditon} );
-var storageroom = new Room({ name: "Storageroom", dimensions: timesTwo([384, 181, 80, 73]), hoverCondition: roomHoverConditon} );
-var kitchen = new Room({ name: "Kitchen", dimensions: timesTwo([32, 80, 112, 90]), hoverCondition: roomHoverConditon} );
-var engineroom = new Room({ name: "Engineroom", dimensions: timesTwo([167, 37, 80, 73]), hoverCondition: roomHoverConditon} );
-var bedroom = new Room({ name: "Bedroom", dimensions: timesTwo([48, 174, 80, 75]), hoverCondition: roomHoverConditon} );
-var shieldroom = new Room({ name: "Shieldroom", dimensions: timesTwo([251, 37, 80, 73]), hoverCondition: roomHoverConditon} );
+var roomHoverConditon = function() { return !!mousePressedPerson; }
+var roomTick = function() {
+    var numberPerRow = 2;
+
+    if (this.dimensions[2] > 165) {
+        numberPerRow = 4;
+    }
+    if (this.dimensions[2] > 225) {
+        numberPerRow = 8;
+    }
+    _.each(this.entities, function(entity, idx) {
+        entity.dimensions[0] = this.dimensions[0] + 30 + (45 * (idx % numberPerRow));
+        entity.dimensions[1] = this.dimensions[1] + 30 + (45 * Math.floor(idx / numberPerRow));
+    }.bind(this));
+};
+var roomBlob = {
+    hoverCondition: roomHoverConditon,
+    tick: roomTick
+}
+var bridge = new Room(_.extend(roomBlob, { name: "Bridge", dimensions: timesTwo([148, 114, 215, 96])}) );
+var medbay = new Room(_.extend(roomBlob, { name: "Medbay", dimensions: timesTwo([368, 80, 112, 96])}) );
+var storageroom = new Room(_.extend(roomBlob, { name: "Storageroom", dimensions: timesTwo([384, 181, 80, 73])}) );
+var kitchen = new Room(_.extend(roomBlob, { name: "Kitchen", dimensions: timesTwo([32, 80, 112, 90])}) );
+var engineroom = new Room(_.extend(roomBlob, { name: "Engineroom", dimensions: timesTwo([167, 37, 80, 73])}) );
+var bedroom = new Room(_.extend(roomBlob, { name: "Bedroom", dimensions: timesTwo([48, 174, 80, 75])}) );
+var shieldroom = new Room(_.extend(roomBlob, { name: "Shieldroom", dimensions: timesTwo([251, 37, 80, 73])}) );
 //var escapePod1 = new Room("Escape pod 1", timesTwo([66, 33, 43, 43]));
 //var escapePod2 = new Room("Escape pod 2", timesTwo([403, 34, 43, 43]));
 
 var crew = [player, medic] //  , pilot, engineer, warrior];
 
-var door1 = new Door(bedroom, kitchen, false, [112, 324, 48, 48], false, false);
-var door2 = new Door(kitchen, bridge, true, [272, 268, 48, 48], false, false);
-var door3 = new Door(engineroom, bridge, false, [352, 204, 48, 48], false, false);
-var door4 = new Door(engineroom, shieldroom, true, [478, 156, 48, 48], false, false);
-var door5 = new Door(bridge, medbay, true, [710, 284, 48, 48], false, false);
-var door6 = new Door(medbay, storageroom, false, [786, 336, 48, 48], false, false);
+var doorSelectCondition = function() {
+    return !!mouseDoorToggleMode;
+};
+var doorActionCondition = function() {
+    this.locked = !this.locked;
+}
+var doorDataBlob = {
+    hoverCondition: doorSelectCondition,
+    action: doorActionCondition
+}
+var door1 = new Door(doorDataBlob, bedroom, kitchen, false, [112, 324, 48, 48], false, false);
+var door2 = new Door(doorDataBlob, kitchen, bridge, true, [272, 268, 48, 48], false, false);
+var door3 = new Door(doorDataBlob, engineroom, bridge, false, [352, 204, 48, 48], false, false);
+var door4 = new Door(doorDataBlob, engineroom, shieldroom, true, [478, 156, 48, 48], false, false);
+var door5 = new Door(doorDataBlob, bridge, medbay, true, [710, 284, 48, 48], false, false);
+var door6 = new Door(doorDataBlob, medbay, storageroom, false, [786, 336, 48, 48], false, false);
 //var door7 = new Door(kitchen, escapePod1, false, [-100, -100, 48, 48], false, false);
 //var door8 = new Door(medbay, escapePod2, false, [-100, -100, 48, 48], false, false);
 
@@ -1039,22 +1067,9 @@ shieldroom.connections = [engineroom];
 
 var rooms = [bedroom, kitchen, bridge, engineroom, shieldroom, medbay, storageroom];
 
-_.each(rooms, function(room) {
-    tickable(room, function() {
-        var numberPerRow = 2;
-
-        if (this.dimensions[2] > 165) {
-            numberPerRow = 4;
-        }
-        if (this.dimensions[2] > 225) {
-            numberPerRow = 8;
-        }
-        _.each(this.entities, function(entity, idx) {
-            entity.dimensions[0] = room.dimensions[0] + 30 + (45 * (idx % numberPerRow));
-            entity.dimensions[1] = room.dimensions[1] + 30 + (45 * Math.floor(idx / numberPerRow));
-        });
-    });
-})
+/*_.each(rooms, function(room) {
+    tickable(room, 
+})*/
 
 // Generic functions
 function connectedRoomsWithPeople(room) {
@@ -1099,11 +1114,9 @@ var placeCrewRandomly = function() {
 }
 
 var placeAliensRandomly = function() {
-    var amount = 0; //Math.floor(Math.random() * 4);
+    var amount = Math.floor(Math.random() * 4);
     console.log('Placing ' + amount + " aliens");
     _.each(new Array(amount), function(unused, idx) {
-        class Alien extends mix(Entity).with(Render, Select, Walk, Brawl, HuntAI, BrawlAI, ActionQueue, Health) {}
-
         var alien = new Alien({
             name: "Alien" + idx,
             img: alienImg,
@@ -1126,31 +1139,25 @@ var placeAliensRandomly = function() {
 }
 
 var placeBanditsRandomly = function() {
-    return;
     var amount = Math.floor(Math.random() * 3);
     console.log('placing ' + amount + " bandits");
     var roomIndex = Math.floor(Math.random() * rooms.length);
 
     _.each(new Array(amount), function(unused, idx) {
-        var bandit = new Entity();
-        _.extend(bandit, {
+        var bandit = new Bandit({
             name: "Bandit" + idx,
-            enemy: true,
             img: banditImg,
             imgBrawling: banditBrawlImg,
             imgPunching: banditBrawlPunchingImg,
             imgUnconscious: banditUnconsciousImg,
-            dimensions: [0, 0, 33, 33]
-        })
-        renderable(bandit);
-        actionQueueAble(bandit);
-        brawlable(bandit, 4);
-        brawlAI(bandit);
-        selectable(bandit, function() {
-            return !!mousePressedPerson;
+            dimensions: [0, 0, 33, 33],
+            health: 10,
+            punchingPower: 5,
+            enemy: true,
+            hoverCondition: function() {
+                return this.isConsciousable && !this.unconsius && mousePressedPerson;
+            }
         });
-        healthable(bandit, 10);
-
         rooms[roomIndex].entities.push(bandit);
     })
 }
@@ -1161,6 +1168,11 @@ var placeCratesRandomly = function() {
         rooms[index].entities.push(crate);
     });
 };
+
+var placeControlPanelRandomly = function() {
+    var index = Math.floor(Math.random() * rooms.length);
+    rooms[index].entities.push(controlpanel);
+}
 
 var placeMedbayRandomly = function() {
     _.each(medbays, function(medbay) {
@@ -1479,7 +1491,7 @@ if (SCENARIO !== false) {
 
     placeItemsRandomly();
 
-    //bridge.entities.push(controlpanel);
-    
+    placeControlPanelRandomly();
+
     gameTick();
 }
