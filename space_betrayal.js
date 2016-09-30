@@ -554,6 +554,10 @@ var firemanCarry = function(who, whom) {
                 logIfApplicable('*** ' + who.name + ' cannot fireman carry ' + whom.name + ' due to not being in the same room', findPerson(who));
                 return false;
             }
+            if (who.firemanCarry) {
+                logIfApplicable('*** ' + who.name + ' cannot fireman carry due to already carrying someone');
+                return false;
+            }
             if (duration === 0) {
                 who.firemanCarry = whom;
                 findPerson(who).crew = _.filter(findPerson(who).crew, function(person) {
@@ -599,10 +603,13 @@ var wake = function(who, whom) {
     return "Waking scheduled";
 }
 
-var brawl = function(who, what) {
+var brawl = function(who) {
     if (who.firemanCarry) {
         return "Cannot brawl while carrying " + who.firemanCarry.name;
     }
+    var what = _.find(findPerson(who).items, function(item) {
+        return (item instanceof Alien);
+    });
     var action = {
         name: "Brawl",
         shortName: "B",
@@ -709,15 +716,30 @@ var move = function(who, where) {
 }
 
 var moveRoute = function(who, where) {
-    var route = findRoute(findPerson(who), where);
-    if (route) {
-        route.shift();
-        _.each(route, function(stop) {
-            move(who, stop);
-        });
-        return "Route scheduled with " + (route.length - 1) + ' stops';
-    } else {
-        return "Route failed"
+    function moveOnePersonOneRoute(who, where) {
+        var route = findRoute(findPerson(who), where);
+        if (route) {
+            route.shift();
+            _.each(route, function(stop) {
+                move(who, stop);
+            });
+            return "Route scheduled with " + (route.length - 1) + ' stops';
+        } else {
+            return "Route failed"
+        }
+    }
+    if (who instanceof Person) {
+        return moveOnePersonOneRoute(who, where);
+    } else if (who instanceof Array) {
+        _.each(who, function(person) {
+            moveOnePersonOneRoute(person, where);
+        })
+        return who.length + " eventually scheduled";
+    } else if (who instanceof Room) {
+        _.each(who.crew, function(person) {
+            moveOnePersonOneRoute(person, where);
+        })
+        return who.crew.length + " eventually scheduled";
     }
 }
 
