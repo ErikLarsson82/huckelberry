@@ -28,12 +28,13 @@ var ALIEN_STATUS = "Alien";
 var ALIEN_DEFEATED_STATUS = "Alien defeated";
 var GOO_STATUS = "Goo";
 var GOO_REMOVED_STATUS = "Goo removed";
+var GOO_SMELLED = "Goo smelled";
 var ROOM_CLEAR_STATUS = "Room clear";
 var ROOM_EMPTY_STATUS = "Room empty";
 
 var SCENARIO = false;
 
-var DEBUG_SEED = 8461;
+var DEBUG_SEED = false;
 
 var DEBUG_SHOW_TRUE_VALUES = false;
 var DEBUG_SHOW_HIDDEN_ITEMS = false;
@@ -152,7 +153,26 @@ var Person = function(name, idx) {
         this.addInformation(new Information(ALIEN_DEFEATED_STATUS, this, findPerson(this), alien));
     }
 
+    this.smellGoo = function() {
+        var relevantRooms = _.clone(findPerson(this).connections);
+        relevantRooms.push(findPerson(this));
+        var found = _.filter(relevantRooms, function(room) {
+            return _.filter(room.items, function(item) {
+                return item instanceof Goo;
+            }).length > 0;
+        }).length > 0;
+        if (found) {
+            if (this === player) {
+                console.log('You smell something slimey in ' + findPerson(player).name);
+            } else {
+                this.iShouldReportThis = true;
+                this.addInformation(new Information(GOO_SMELLED, this, findPerson(this)));
+            }
+        }
+    }
+
     this.tick = function() {
+        this.smellGoo();
         if (this.queue.length > 0) {
             var currentQueue = this.queue[0];
             var result = currentQueue.event(currentQueue.duration);
@@ -677,13 +697,15 @@ var removeGoo = function(who) {
 var searchTheShip = function() {
     _.each(crew, function(person) {
         investigate(person);
-    })
+    });
+    return "You tell everyone to search the ship and report over intercom";
 }
 
 var reportAll = function(prio) {
     _.chain(crew).filter(function(person) {
         return (!(person.name === "You") && findPerson(person) !== findPerson(player))
     }).each(function(person) { report(person, prio) });
+    return "You tell everyone to report over intercom";
 }
 
 var report = function(who, prio) {
@@ -992,7 +1014,7 @@ var isBrawling = function(who, what) {
 var logIfApplicable = function(room, msg1, msg2) {
     if (findPerson(player) === room) {
         console.log("*** " + msg1);
-    } else {
+    } else if (msg2) {
         console.log(msg2);
     }
     if (DEBUG_SHOW_HIDDEN_LOGS) {
@@ -1045,6 +1067,12 @@ var isLegalMove = function(who, where) {
         })
     });
     return legal;
+}
+
+function isAdjacent(room1, room2) {
+    return _.filter(room1.connections, function(connection) {
+        return (connection === room2);
+    }).length > 0;
 }
 
 var transferInformationIfApplicable = function() {
@@ -1143,7 +1171,7 @@ var printShipStatus = function() {
 
         if (applicableInfo.length > 0) {
 
-            var types = [ROOM_EMPTY_STATUS, ROOM_CLEAR_STATUS, ALIEN_STATUS, ALIEN_DEFEATED_STATUS, GOO_STATUS, GOO_REMOVED_STATUS];
+            var types = [ROOM_EMPTY_STATUS, ROOM_CLEAR_STATUS, ALIEN_STATUS, ALIEN_DEFEATED_STATUS, GOO_STATUS, GOO_REMOVED_STATUS, GOO_SMELLED];
 
             var printStatus = function(type) {
                 var typeInfo = _.filter(applicableInfo, function(info) {
