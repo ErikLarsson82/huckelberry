@@ -658,7 +658,7 @@ var medic = new Medic({
     name: "Medic",
     friend: true,
     img: linkPurpleImg,
-    profile: profile1,
+    profile: profile2,
     imgWalking: linkPurpleWalkingImg,
     imgBrawling: linkBrawlImg,
     imgPunching: linkBrawlPunchingImg,
