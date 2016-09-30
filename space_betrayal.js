@@ -173,7 +173,7 @@ var mixinAI = function(person) {
     person.goUnconscious = function() {
         this.queue = [];
         this.conscious = false;
-        logIfApplicable(this.name + " is unconscious", findPerson(this))
+        logIfApplicable(findPerson(this), this.name + " is unconscious")
     }
     person.tick = function() {
         if (this.hp === 1 && this.conscious === true) {
@@ -321,7 +321,7 @@ var Alien = function() {
     this.markedForRemoval = false;
     this.tick = function() {
         if (this.hp <= 0) {
-            if (findItem(this) === findPerson(player)) logIfApplicable('-> Killed ' + this.name, findItem(this));
+            if (findItem(this) === findPerson(player)) logIfApplicable(findItem(this), '-> Killed ' + this.name);
             _.each(findItem(this).crew, function(person) {
                 person.defeatedAlien(this);
             }.bind(this));
@@ -341,7 +341,7 @@ var Alien = function() {
             });
 
             if (eligble.length < 1) {
-                logIfApplicable('Alien has noone to hurt', alienRoom);
+                logIfApplicable(alienRoom, 'Alien has noone to hurt');
                 return;
             }
             if (amountBrawling.length === 0) {
@@ -349,18 +349,18 @@ var Alien = function() {
                 var person = eligble[randomidx];
                 var dmg = person.hurt(this);
                 var random = (eligble.length > 1) ? 'randomly ' : ''
-                logIfApplicable('Alien ' + random + 'hurts ' + person.name + ' for ' + dmg + ' HP, now he has ' + person.hp, alienRoom);
+                logIfApplicable(alienRoom, 'Alien ' + random + 'hurts ' + person.name + ' for ' + dmg + ' HP, now he has ' + person.hp);
             } else if (amountBrawling.length === 1) {
                 var dmg = amountBrawling[0].hurt(this);
-                logIfApplicable('Alien hurts lone brawler ' + amountBrawling[0].name + ' for '+dmg+' HP, now he has ' + amountBrawling[0].hp, alienRoom);
+                logIfApplicable(alienRoom, 'Alien hurts lone brawler ' + amountBrawling[0].name + ' for '+dmg+' HP, now he has ' + amountBrawling[0].hp);
             } else {
                 if (Math.random() > 0.8) {
                     var randomidx = Math.floor(Math.random() * amountBrawling.length)
                     var person = amountBrawling[randomidx];
                     var dmg = person.hurt(this);
-                    logIfApplicable('Alien hurts brawler ' + person.name + ' for '+dmg+' HP, now he has ' + person.hp, alienRoom);
+                    logIfApplicable(alienRoom, 'Alien hurts brawler ' + person.name + ' for '+dmg+' HP, now he has ' + person.hp);
                 } else {
-                    logIfApplicable('Alien failed to hurt ' + prettyList(_.pluck(amountBrawling, 'name')) + ' because they where many', alienRoom);
+                    logIfApplicable(alienRoom, 'Alien failed to hurt ' + prettyList(_.pluck(amountBrawling, 'name')) + ' because they where many');
                 }
             }
         }
@@ -419,16 +419,21 @@ var placeCrewRandomly = function() {
     })
 }
 
-var warp = function() {
-    if (engine.status === BROKEN) {
-        console.log('Ship failed to start warp drive .... engine is awfully quiet.');
-        return;
-    }      
-    this.isWarp = true;
-    this.downtime = 3;
-    this.points = this.points - this.eventDuration;
-    this.eventDuration = 0;
-    console.log('Ship goes into warp drive, you have ' + this.points + ' points.');
+var warp = function(mode) {
+    if (mode) {
+        if (engine.status === BROKEN) {
+            console.log('Ship failed to start warp drive .... engine is awfully quiet.');
+            return;
+        }      
+        this.isWarp = true;
+        this.downtime = 3;
+        this.points = this.points - this.eventDuration;
+        this.eventDuration = 0;
+        console.log('Ship goes into warp drive, you have ' + this.points + ' points.');
+    } else {
+        console.log('Exiting warp speed');
+        this.isWarp = false;
+    }
 }
 
 var doors = [door1, door2, door3, door4, door5, door6, door7, door8];
@@ -464,7 +469,8 @@ var ship = {
             this.eventDuration += 1;
         }
     },
-    engageWarp: warp
+    engageWarp: function() { warp.call(this, true) },
+    disengageWarp: function() { warp.call(this, false) }
 }
 
 // Item functions
@@ -539,13 +545,16 @@ var fixEngine = function(who) {
 
 // People functions
 var engageWarp = function(who) {
+    if (!who) {
+        return "Who?";
+    }
     var action = {
         name: "Engage warp",
         shortName: "W",
         duration: 4,
         event: function(duration) {
             if (findPerson(who) !== findItem(controlPanel)) {
-                logIfApplicable('*** ' + who.name + ' cannot start warp due to not being in the same room', findPerson(who));
+                logIfApplicable(findPerson(who), '*** ' + who.name + ' cannot start warp due to not being in the same room');
                 return false;
             }
             if (duration === 0) {
@@ -558,6 +567,10 @@ var engageWarp = function(who) {
     return "Engage Warp scheduled";
 }
 
+var disengageWarp = function() {
+    ship.disengageWarp();
+}
+
 var firemanCarry = function(who, whom) {
     var action = {
         name: "Carry",
@@ -566,11 +579,11 @@ var firemanCarry = function(who, whom) {
         whom: whom,
         event: function(duration) {
             if (findPerson(whom) !== findPerson(who)) {
-                logIfApplicable('*** ' + who.name + ' cannot fireman carry ' + whom.name + ' due to not being in the same room', findPerson(who));
+                logIfApplicable(findPerson(who), '*** ' + who.name + ' cannot fireman carry ' + whom.name + ' due to not being in the same room');
                 return false;
             }
             if (who.firemanCarry) {
-                logIfApplicable('*** ' + who.name + ' cannot fireman carry due to already carrying someone');
+                logIfApplicable(findPerson(who), '*** ' + who.name + ' cannot fireman carry due to already carrying someone');
                 return false;
             }
             if (duration === 0) {
@@ -738,9 +751,13 @@ var moveRoute = function(who, where) {
             _.each(route, function(stop) {
                 move(who, stop);
             });
-            return "Route scheduled with " + (route.length - 1) + ' stops';
+            logIfApplicable(findPerson(who), "Route scheduled with " + (route.length - 1) + ' stops',
+                "You tell the order over intercom, unsure who is listening")
+            return "Done";
         } else {
-            return "Route failed"
+            logIfApplicable(findPerson(who), "Route failed",
+                "You tell the order over intercom, unsure who is listening")
+            return "Done";
         }
     }
     if (who instanceof Person) {
@@ -749,12 +766,12 @@ var moveRoute = function(who, where) {
         _.each(who, function(person) {
             moveOnePersonOneRoute(person, where);
         })
-        return who.length + " eventually scheduled";
+        return "You tell the order over intercom, unsure who is listening";
     } else if (who instanceof Room) {
         _.each(who.crew, function(person) {
             moveOnePersonOneRoute(person, where);
         })
-        return who.crew.length + " eventually scheduled";
+        return "You tell the order over intercom, unsure who is listening";
     }
 }
 
@@ -821,7 +838,7 @@ var investigate = function(who) {
                 var foundItems = revealHiddenItemsInRoom(room);
                 if (foundItems.length === 0) {
                     if (findPerson(player) === room) {
-                        logIfApplicable(who.name + ': Investigation complete, nothing new found', findPerson(player));
+                        logIfApplicable(findPerson(player), who.name + ': Investigation complete, nothing new found');
                     } else {
                         who.iShouldReportThis = true;
                         who.addInformation(new Information(ROOM_CLEAR_STATUS, who, findPerson(who), ""));
@@ -832,7 +849,7 @@ var investigate = function(who) {
                         _.each(foundItems, function(item) {
                             items += item.name + ', ';
                         });
-                        logIfApplicable(who.name + ' are done with investigation, found ' + items, findPerson(player));
+                        logIfApplicable(findPerson(player), who.name + ' are done with investigation, found ' + items);
                     } else {
                         _.each(foundItems, function(item) {
                             who.iShouldReportThis = true;
@@ -972,11 +989,14 @@ var isBrawling = function(who, what) {
     return !!(who.conscious && who.queue[0] && who.queue[0].name === "Brawl" && who.queue[0].what === what);
 }
 
-var logIfApplicable = function(msg, room) {
+var logIfApplicable = function(room, msg1, msg2) {
     if (findPerson(player) === room) {
-        console.log("*** " + msg);
-    } else if (DEBUG_SHOW_HIDDEN_LOGS) {
-        console.log("Hidden: *** " + msg);
+        console.log("*** " + msg1);
+    } else {
+        console.log(msg2);
+    }
+    if (DEBUG_SHOW_HIDDEN_LOGS) {
+        console.log("Hidden: *** " + msg1);
     }
 }
 
