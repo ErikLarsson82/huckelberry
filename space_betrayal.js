@@ -420,15 +420,20 @@ var placeCrewRandomly = function() {
 }
 
 var warp = function() {
+    if (engine.status === BROKEN) {
+        console.log('Ship failed to start warp drive .... engine is awfully quiet.');
+        return;
+    }      
     this.isWarp = true;
     this.downtime = 3;
-    this.eventDuration = 0;
     this.points = this.points - this.eventDuration;
+    this.eventDuration = 0;
     console.log('Ship goes into warp drive, you have ' + this.points + ' points.');
 }
 
 var doors = [door1, door2, door3, door4, door5, door6, door7, door8];
 var ship = {
+    hull: 100,
     rooms: rooms,
     doors: doors,
     crew: crew,
@@ -437,14 +442,24 @@ var ship = {
     points: 100,
     downtime: 3,
     tick: function() {
+        if (this.hull <= 0) {
+            console.log("Ship hull destroyed, Game over");
+            return;
+        }
         if (this.isWarp) {
-            this.downtime -= 1;
-            console.log('Ship is in warp drive .... playing animation.');
-
-            if (this.downtime <= 0) {
-                ship.isWarp = false;
-                startEvent();
+            if (controlPanel.breachDetected) {
+                this.hull = this.hull - 20;
+                console.log('Ship is in warp drive but something is off, things are not going smooth.');
+            } else {
+                this.downtime -= 1;
+                console.log('Ship is in warp drive .... playing animation.');
+                
+                if (this.downtime <= 0) {
+                    ship.isWarp = false;
+                    startEvent();
+                }
             }
+
         } else {
             this.eventDuration += 1;
         }
