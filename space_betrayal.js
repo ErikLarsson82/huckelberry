@@ -56,14 +56,15 @@ var settings = {
     warp: {
         powerRequirement: 10
     },
-    meteorDamage: 10
+    meteorDamage: 6
 }
 
 var lore = {
     engineFailPower: 'Ship failed to start warp drive .... and the lights are flickering.',
     engineFailEngine: 'Ship failed to start warp drive .... engine is awfully quiet.',
     pilotAvoidsMeteor: 'Ship makes a high-G turn, probably to avoid a collision.',
-    shipHitByMeteor: 'Ship shakes violently and a loud noise is heard. Did something hit us?'
+    shipHitByMeteor: 'Ship shakes violently and a loud noise is heard. Did something hit us?',
+    imInTheWrongRoom: 'I can\'t steer, I\'m in the wrong room captain'
 }
 
 
@@ -168,6 +169,8 @@ var Person = function(name, idx) {
     }
 
     this.smellGoo = function() {
+        if (!findPerson(this)) return; //Person not on ship
+
         var relevantRooms = _.clone(findPerson(this).connections);
         relevantRooms.push(findPerson(this));
         var found = _.filter(relevantRooms, function(room) {
@@ -542,7 +545,7 @@ var ship = {
     disengageWarp: function() { warp.call(this, false) }
 }
 
-// Item functions
+// People functions
 var lockAllDoors = function(who) {
     var action = {
         name: "Lock all doors",
@@ -612,7 +615,6 @@ var fixEngine = function(who) {
     return "Repair added to queue";
 }
 
-// People functions
 var engageWarp = function(who) {
     if (!who) {
         return "Who?";
@@ -721,6 +723,37 @@ var brawl = function(who) {
     return "Brawling scheduled";
 }
 
+var steer = function(who) {
+    function canSteer() {
+        return _.find(findPerson(who).items, function(item) {
+            return (item instanceof ControlPanel);
+        });
+    }
+
+    if (!canSteer() && who.queue.length === 0) return lore.imInTheWrongRoom;
+
+    var action = {
+        name: "Steer",
+        shortName: "S",
+        duration: 999,
+        event: function() {
+            if (who.firemanCarry) {
+                logIfApplicable("Cannot steer while carrying " + who.firemanCarry.name);
+                return false;
+            }
+            
+            if (!canSteer()) {
+                logIfApplicable(lore.noControlPanelInThisRoom);
+                return false;
+            } else {
+                return true;
+            }
+        }.bind(who)
+    }
+    who.queue.push(action);
+    return "Steering scheduled";
+}
+
 var removeGoo = function(who) {
     var goo = _.find(findPerson(who).items, function(item) {
         return (item instanceof Goo) && !item.hidden;
@@ -814,7 +847,7 @@ var move = function(who, where) {
     return "Move scheduled";
 }
 
-var moveRoute = function(who, where) {
+var moveRoute = function(whoOrList, where) {
     function moveOnePersonOneRoute(who, where) {
         var route = findRoute(findPerson(who), where);
         if (route) {
@@ -831,15 +864,15 @@ var moveRoute = function(who, where) {
             return "Done";
         }
     }
-    if (who instanceof Person) {
-        return moveOnePersonOneRoute(who, where);
-    } else if (who instanceof Array) {
-        _.each(who, function(person) {
+    if (whoOrList instanceof Person) {
+        return moveOnePersonOneRoute(whoOrList, where);
+    } else if (whoOrList instanceof Array) {
+        _.each(whoOrList, function(person) {
             moveOnePersonOneRoute(person, where);
         })
         return "You tell the order over intercom, unsure who is listening";
-    } else if (who instanceof Room) {
-        _.each(who.crew, function(person) {
+    } else if (whoOrList instanceof Room) {
+        _.each(whoOrList.crew, function(person) {
             moveOnePersonOneRoute(person, where);
         })
         return "You tell the order over intercom, unsure who is listening";
@@ -860,7 +893,7 @@ var moveAndReportRoute = function(who, where) {
     }
 }
 
-var movevteAndReportRoute = function(who, where) {
+var moveInvestigateAndReportRoute = function(who, where) {
     var route = findRoute(findPerson(who), where);
     if (route) {
         route.shift();
@@ -950,9 +983,40 @@ var clearAllQueuedActions = function() {
     });
 }
 
+var printAllActions = function() {
+    var list = [
+        "report",
+        "reportAll",
+        "searchTheShip",
+        "removeGoo",
+        "steer",
+        "brawl",
+        "wake",
+        "firemanCarryRelease",
+        "firemanCarry",
+        "disengageWarp",
+        "engageWarp",
+        "fixEngine",
+        "unlockAllDoors",
+        "lockAllDoors",
+        "moveRoute",
+        "moveAndReportRoute",
+        "moveInvestigateAndReportRoute",
+        "moveInvestigateRoute",
+        "investigate",
+        "removeQueuedAction",
+        "clearPersonsQueuedActions",
+        "clearAllQueuedActions"
+    ];
+    _.each(list, function(item) {
+        console.log(item);
+    })
+    return "End of list";
+}
+
 // Ship help functions
 var isSteering = function() {
-    return false;
+    return pilot.queue.length > 0 && pilot.queue[0].name === "Steer";
 }
 
 var findDoor = function(from, to) {
@@ -1826,6 +1890,19 @@ if (SCENARIO !== false) {
             gameTick();
             gameTick();
             gameTick();
+        break;
+        case 17:
+            bridge.crew = [player, pilot];
+            medbay.crew = [];
+            storageroom.crew = [];
+            kitchen.crew = [];
+            engineroom.crew = [];
+            bedroom.crew = [];
+            shieldroom.crew = [];
+            escapePod1.crew = [];
+            escapePod2.crew = [];
+            steer(pilot);
+            printShipStatus();
         break;
     }
 } else {
