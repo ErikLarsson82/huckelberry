@@ -52,6 +52,20 @@ var ALIEN_IN_BEDROOM = false;
 var TWO_ALIENS_IN_KITCHEN = false;
 var LOCK_ALL_DOORS = false;
 
+var settings = {
+    warp: {
+        powerRequirement: 10
+    },
+    meteorDamage: 10
+}
+
+var lore = {
+    engineFailPower: 'Ship failed to start warp drive .... and the lights are flickering.',
+    engineFailEngine: 'Ship failed to start warp drive .... engine is awfully quiet.',
+    pilotAvoidsMeteor: 'Ship makes a high-G turn, probably to avoid a collision.',
+    shipHitByMeteor: 'Ship shakes violently and a loud noise is heard. Did something hit us?'
+}
+
 
 document.addEventListener("keydown", function(e) {
     if (e.code === "Space") {
@@ -61,7 +75,7 @@ document.addEventListener("keydown", function(e) {
         } else {
             HALTED = true;
             console.log("Simulation paused!");
-        }   
+        }
     } else if (e.keyCode === 83) {
         if (!HALTED) {
             console.log("Simulation paused!");
@@ -110,7 +124,7 @@ var addInformation = function(list, inputInfo) {
     return list;
 }
 
-// People 
+// People
 var Person = function(name, idx) {
     this.name = name;
     this.hp = 10;
@@ -208,7 +222,7 @@ var mixinAI = function(person) {
         }
 
         var aliens = _.filter(findPerson(this).items, function(item) {
-           return item.type === "Alien"; 
+           return item.type === "Alien";
         });
         if (aliens.length > 0) {
             _.each(aliens, function(alien) {
@@ -233,16 +247,17 @@ var mixinPlayer = function(player) {
         if (this.hp === 1) {
             console.log("*** GAME OVER, YOU ARE DEAD");
         }
-        _.each(information, function(info) {
+        /*_.each(information, function(info) {
             if (info.room === findPerson(this)) {
                 info.markedForRemoval = true;
             }
-        }.bind(this))
+        }.bind(this))*/
         preserve.call(player);
     }
 }
 
 var FirstAidKit = function() {}
+var Pistol = function() {}
 
 var player = new Person("You", 0);
 mixinPlayer(player);
@@ -252,11 +267,12 @@ var medic = new Person("Medic", 1);
 mixinAI(medic);
 medic.inventory.push(new FirstAidKit());
 
-var mechanic = new Person("Mechanic", 2);
-mixinAI(mechanic);
+var engineer = new Person("Engineer", 2);
+mixinAI(engineer);
 
-var mercenary = new Person("Mercenary", 3);
-mixinAI(mercenary);
+var warrior = new Person("Warrior", 3);
+warrior.inventory.push(new FirstAidKit());
+mixinAI(warrior);
 
 var pilot = new Person("Pilot", 4);
 mixinAI(pilot);
@@ -270,6 +286,14 @@ var Room = function(name) {
 }
 
 var Engine = function() {
+    this.status = OPERATIONAL;
+};
+
+var Battery = function() {
+    this.powerLevel = 100;
+};
+
+var Generator = function() {
     this.status = OPERATIONAL;
 };
 
@@ -397,11 +421,13 @@ var shieldroom = new Room("Shieldroom  ");
 var escapePod1 = new Room("Escape pod 1");
 var escapePod2 = new Room("Escape pod 2");
 
-var crew = [player, medic, pilot, mechanic, mercenary];
+var crew = [player, medic, pilot, engineer, warrior];
 
 var information = [];
 
 var engine = new Engine();
+var battery = new Battery();
+var generator = new Generator();
 
 var controlPanel = new ControlPanel();
 
@@ -416,6 +442,8 @@ var door8 = new Door(medbay, escapePod2);
 
 bridge.items.push(controlPanel);
 engineroom.items.push(engine);
+engineroom.items.push(battery);
+engineroom.items.push(generator);
 
 bridge.connections = [engineroom, kitchen, medbay];
 medbay.connections = [escapePod2, storageroom, bridge];
@@ -429,6 +457,23 @@ escapePod2.connections = [medbay];
 
 var rooms = [escapePod1, bedroom, kitchen, bridge, engineroom, shieldroom, medbay, storageroom, escapePod2];
 
+var environment = [];
+
+class MeteorStorm {
+    tick() {
+        if (Math.random() > 0.3) {
+            if (isSteering(pilot)) {
+                console.log(lore.pilotAvoidsMeteor);
+            } else {
+                console.log(lore.shipHitByMeteor);
+                ship.hull = ship.hull - settings.meteorDamage;
+            }
+        }
+    }
+}
+
+environment.push(new MeteorStorm());
+
 var placeCrewRandomly = function() {
     _.each(rooms, function(room) {
         room.crew = [];
@@ -441,10 +486,14 @@ var placeCrewRandomly = function() {
 
 var warp = function(mode) {
     if (mode) {
-        if (engine.status === BROKEN) {
-            console.log('Ship failed to start warp drive .... engine is awfully quiet.');
+        if (battery.powerLevel < settings.warp.powerRequirement) {
+            console.log(lore.engineFailPower);
             return;
-        }      
+        }
+        if (engine.status === BROKEN) {
+            console.log(lore.engineFailEngine);
+            return;
+        }
         this.isWarp = true;
         this.downtime = 3;
         this.points = this.points - this.eventDuration;
@@ -478,7 +527,7 @@ var ship = {
             } else {
                 this.downtime -= 1;
                 console.log('Ship is in warp drive .... playing animation.');
-                
+
                 if (this.downtime <= 0) {
                     ship.isWarp = false;
                     startEvent();
@@ -721,7 +770,7 @@ var report = function(who, prio) {
                     information = addInformation(information, new Information(ROOM_EMPTY_STATUS, who, findPerson(who), ""));
                 } else {
                     _.each(who.information, function(info) {
-                        information = addInformation(information, info);                    
+                        information = addInformation(information, info);
                     });
                 }
                 who.information = [];
@@ -747,11 +796,11 @@ var move = function(who, where) {
                 var result = executeMove(who, where);
 
                 if (who !== player) {
-                    
+
                     var items = _.filter(where.items, function(item) {
                         return (item instanceof Alien || item instanceof Goo) && (item.hidden === false);
                     });
-                    _.each(items, function(item) {    
+                    _.each(items, function(item) {
                         who.addInformation(new Information(item.type, who, findPerson(who), item));
                     });
                 }
@@ -902,6 +951,10 @@ var clearAllQueuedActions = function() {
 }
 
 // Ship help functions
+var isSteering = function() {
+    return false;
+}
+
 var findDoor = function(from, to) {
     var door = _.filter(doors, function(door) {
         return _.contains(door.connections, from) && _.contains(door.connections, to);
@@ -970,17 +1023,17 @@ var findRoute = function(from, to) {
     var visitedRooms = [];
     var routesLeft = true;
     var tries = 0;
-    
+
     var tryAllRooms = function(currentRoom) {
         tries = tries + 1;
         if (tries > 50) {
             console.log('failsafe in recursive algorithm activated');
             return false;
         }
-        
+
         visitedRooms.push(currentRoom);
         route.push(currentRoom);
-        
+
         if (currentRoom === to) {
             return true;
         }
@@ -1079,7 +1132,7 @@ var transferInformationIfApplicable = function() {
     _.each(crew, function(person) {
         if (person !== player && (findPerson(person) === findPerson(player)) && person.conscious) {
             _.each(person.information, function(info) {
-                information = addInformation(information, info);                    
+                information = addInformation(information, info);
             });
             person.queue = _.filter(person.queue, function(action) {
                 return (action.name !== "Report");
@@ -1128,7 +1181,7 @@ var printShipStatus = function() {
                     prettyPerson += "[" + person.queue[0].shortName + "-" + duration + "]";
                 }
                 if (person.firemanCarry) {
-                    prettyPerson += "\\"+person.firemanCarry.name+"/"   
+                    prettyPerson += "\\"+person.firemanCarry.name+"/"
                 }
                 prettyPeople += prettyPerson + ", ";
             });
@@ -1164,7 +1217,7 @@ var printShipStatus = function() {
                 console.log('                        < ' + prettyItems + ' >');
             }
         }
-        
+
         var applicableInfo = _.filter(information, function(info) {
             return room === info.room;
         });
@@ -1246,10 +1299,16 @@ var gameTick = function() {
     console.log("");
     console.log("");
 
+    //Tick environment
+
+    _.each(environment, function(item) {
+        item.tick();
+    });
+
     //Tick ship
     ship.tick();
     if (ship.isWarp) return;
-    
+
     console.log("New turn:");
 
     //Tick all crew
@@ -1638,7 +1697,7 @@ if (SCENARIO !== false) {
         break;
         case 9:
             pilot.hp = 2;
-            bridge.crew = [pilot, mercenary]; //, , mechanic
+            bridge.crew = [pilot, warrior]; //, , engineer
             medbay.crew = [player];
             storageroom.crew = [];
             kitchen.crew = [];
@@ -1652,7 +1711,7 @@ if (SCENARIO !== false) {
             gameTick();
         break;
         case 10:
-            bridge.crew = [medic]; //, , mechanic
+            bridge.crew = [medic]; //, , engineer
             medbay.crew = [];
             storageroom.crew = [player];
             kitchen.crew = [];
@@ -1664,19 +1723,19 @@ if (SCENARIO !== false) {
             printShipStatus();
         break;
         case 11:
-            mechanic.hp = 2;
-            bridge.crew = [medic]; //, , 
+            engineer.hp = 2;
+            bridge.crew = [medic]; //, ,
             medbay.crew = [];
             storageroom.crew = [];
             kitchen.crew = [player];
             engineroom.crew = [];
-            bedroom.crew = [mechanic];
+            bedroom.crew = [engineer];
             shieldroom.crew = [];
             escapePod1.crew = [];
             escapePod2.crew = [];
             var spawningAlien = new Alien();
             bedroom.items.push(spawningAlien);
-            //mechanic.conscious = false;
+            //engineer.conscious = false;
             gameTick();
             gameTick();
             move(player, bedroom);
@@ -1693,8 +1752,8 @@ if (SCENARIO !== false) {
             gameTick();
         break;
         case 12:
-            mechanic.conscious = false;
-            bridge.crew = [player, mechanic];
+            engineer.conscious = false;
+            bridge.crew = [player, engineer];
             medbay.crew = [];
             storageroom.crew = [];
             kitchen.crew = [];
@@ -1703,7 +1762,7 @@ if (SCENARIO !== false) {
             shieldroom.crew = [];
             escapePod1.crew = [];
             escapePod2.crew = [];
-            firemanCarry(player, mechanic);
+            firemanCarry(player, engineer);
             gameTick();
             gameTick();
             gameTick();
@@ -1713,7 +1772,7 @@ if (SCENARIO !== false) {
         break;
         case 13:
             bridge.crew = [player];
-            medbay.crew = [mechanic, medic];
+            medbay.crew = [engineer, medic];
             storageroom.crew = [];
             kitchen.crew = [];
             engineroom.crew = [];
@@ -1721,17 +1780,17 @@ if (SCENARIO !== false) {
             shieldroom.crew = [];
             escapePod1.crew = [];
             escapePod2.crew = [];
-            report(mechanic);
+            report(engineer);
             report(medic);
             gameTick();
             gameTick();
-            
+
         break;
         case 15:
             bridge.crew = [player];
             medbay.crew = [];
             storageroom.crew = [];
-            kitchen.crew = [mechanic];
+            kitchen.crew = [engineer];
             engineroom.crew = [];
             bedroom.crew = [];
             shieldroom.crew = [];
@@ -1739,14 +1798,14 @@ if (SCENARIO !== false) {
             escapePod2.crew = [];
             controlPanel.breachDetected = true;
             kitchen.items.push(new Goo());
-            investigate(mechanic);
+            investigate(engineer);
             gameTick();
             gameTick();
             gameTick();
             gameTick();
             gameTick();
             gameTick();
-            removeGoo(mechanic);
+            removeGoo(engineer);
             gameTick();
             gameTick();
             gameTick();
